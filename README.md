@@ -124,6 +124,8 @@ npm run cyborg -- tool call page-generator-cli --request ..\Page-Generator-CLI\e
 npm run cyborg -- tool doctor page-generator-cli
 npm run cyborg -- tool env page-generator-cli
 npm run cyborg -- tool install page-generator-cli
+npm run cyborg -- tool marketplace examples\marketplace.json
+npm run cyborg -- tool marketplace examples\marketplace.json --install research-fetcher
 npm run cyborg -- tui --tool page-generator-cli --request ..\Page-Generator-CLI\examples\a2c2a-render.json
 npm run cyborg -- hook list
 npm run cyborg -- policy list
@@ -274,6 +276,7 @@ Register the built-in research fetcher:
 
 ```powershell
 npm run cyborg -- tool add examples\research-fetcher-tool.json
+npm run cyborg -- tool marketplace examples\marketplace.json --install research-fetcher
 ```
 
 Call it:

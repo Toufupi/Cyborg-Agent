@@ -23,6 +23,7 @@ import { listApprovals, resolveApproval } from "../approvals.js";
 import { doctorCyborg } from "../doctor.js";
 import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
 import { smokeModel } from "../model-client.js";
+import { installMarketplaceTool, listMarketplaceTools } from "../marketplace.js";
 import { readAuditEvents } from "../audit.js";
 import { requestSchedulerStop, runDueTasks, schedulerStatus, watchDueTasks } from "../scheduler.js";
 import { addMemory, extractMemoriesFromRun, listMemories, searchMemories, type MemoryType } from "../memory.js";
@@ -302,6 +303,32 @@ tool.command("install")
     process.stdout.write(result.stdout);
     process.stderr.write(result.stderr);
     process.exitCode = result.code ?? 0;
+  });
+
+tool.command("marketplace")
+  .argument("<file>", "Marketplace JSON index")
+  .option("--install <name>", "Install a tool registration from the marketplace")
+  .option("--as <name>", "Register installed tool under an alias")
+  .option("--json", "Print JSON")
+  .description("List or install tool registrations from a Cyborg marketplace index.")
+  .action(async (file: string, options: { install?: string; as?: string; json?: boolean }) => {
+    if (options.install) {
+      const result = await installMarketplaceTool(file, options.install, process.cwd(), options.as);
+      console.log(JSON.stringify({ ok: true, marketplace: result }, null, 2));
+      return;
+    }
+    const tools = await listMarketplaceTools(file);
+    if (options.json) {
+      console.log(JSON.stringify({ ok: true, tools }, null, 2));
+      return;
+    }
+    if (tools.length === 0) {
+      console.log("No marketplace tools found.");
+      return;
+    }
+    tools.forEach((entry) => {
+      console.log(`${entry.name}\t${entry.category}\t${entry.description ?? ""}\t${entry.registration}`);
+    });
   });
 
 const task = program.command("task")

@@ -48,6 +48,10 @@ describe("cli", () => {
     expect(env.stdout).toContain("effective isolated runtime environment");
     expect(install.code).toBe(0);
     expect(install.stdout).toContain("declared runtime cwd");
+
+    const marketplace = await runInvocation(cyborgInvocation(["tool", "marketplace", "--help"]));
+    expect(marketplace.code).toBe(0);
+    expect(marketplace.stdout).toContain("marketplace index");
   });
 
   it("can add and list a registered tool from the CLI", async () => {

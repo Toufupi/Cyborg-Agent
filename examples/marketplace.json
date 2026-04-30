@@ -1,0 +1,14 @@
+{
+  "schema": "cyborg.marketplace.v0.1",
+  "name": "local-examples",
+  "description": "Local example Cyborg tools that can be registered into a workspace.",
+  "tools": [
+    {
+      "name": "research-fetcher",
+      "description": "Fetch arXiv, RSS, GitHub, or sample research items as A2C2A JSON.",
+      "category": "research",
+      "registration": "research-fetcher-tool.json",
+      "tags": ["research", "rss", "arxiv", "github"]
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import path from "node:path";
 import { listTasks } from "./task.js";
 import { runTask } from "./agent/task-runner.js";
@@ -68,7 +68,9 @@ export async function schedulerStatus(root = process.cwd()): Promise<SchedulerSt
 export async function saveSchedulerState(root: string, state: SchedulerState) {
   const file = schedulerStatePath(root);
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  const tempFile = `${file}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tempFile, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  await rename(tempFile, file);
   return { file, state };
 }
 
@@ -135,7 +137,7 @@ export async function runDueTasks(root = process.cwd(), now = new Date()) {
   return { runs, errors, state };
 }
 
-export async function watchDueTasks(root = process.cwd(), intervalMs = 60_000, signal?: AbortSignal, onRun?: (result: Awaited<ReturnType<typeof runDueTasks>>) => void) {
+export async function watchDueTasks(root = process.cwd(), intervalMs = 60_000, signal?: AbortSignal, onRun?: (result: Awaited<ReturnType<typeof runDueTasks>>) => void | Promise<void>) {
   await updateSchedulerDaemon(root, {
     status: "watching",
     pid: process.pid,
@@ -168,7 +170,7 @@ export async function watchDueTasks(root = process.cwd(), intervalMs = 60_000, s
         last_tick_at: tickAt
       });
       const result = await runDueTasks(root);
-      onRun?.(result);
+      await onRun?.(result);
       await sleep(intervalMs, signal);
     }
     await updateSchedulerDaemon(root, {

@@ -15,6 +15,10 @@ dist/
 build/
 .next/
 .vite/
+reports/
+
+# Local Cyborg runtime state
+.cyborg/
 
 # Virtual environments
 .venv/

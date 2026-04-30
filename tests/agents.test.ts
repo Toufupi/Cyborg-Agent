@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadA2ATranscript } from "../src/a2a.js";
-import { addAgentProfile, cancelSubagentStatus, listAgentProfiles, loadAgentProfile, loadSubagentStatus, runSubagent, runToolBuilderSubagent } from "../src/agents.js";
+import { addAgentProfile, cancelSubagentStatus, listAgentProfiles, listSubagentRuns, loadAgentProfile, loadSubagentStatus, runSubagent, runToolBuilderSubagent } from "../src/agents.js";
 import { readAuditEvents } from "../src/audit.js";
 import { addTool } from "../src/registry.js";
 import { addTask } from "../src/task.js";
@@ -90,6 +90,12 @@ describe("agent profiles and subagents", () => {
       expect(status.worker).toBe("task");
       expect(status.progress?.phase).toBe("completed");
       expect(status.heartbeat_at).toBeTruthy();
+      expect(await listSubagentRuns(root)).toHaveLength(0);
+      expect((await listSubagentRuns(root, { includeCompleted: true }))[0]).toEqual(expect.objectContaining({
+        run_id: status.run_id,
+        live: false,
+        stale: false
+      }));
       expect((await readAuditEvents(root)).map((event) => event.type)).toContain("subagent.end");
     });
   });
@@ -165,6 +171,32 @@ describe("agent profiles and subagents", () => {
 
       expect(status.status).toBe("cancelled");
       expect(status.error?.message).toBe("test cancel");
+    });
+  });
+
+  it("lists stale running subagent statuses", async () => {
+    await withTempWorkspace(async (root) => {
+      const oldTime = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const runDir = path.join(root, ".cyborg", "runs", "agent-researcher-old");
+      const { mkdir } = await import("node:fs/promises");
+      await mkdir(runDir, { recursive: true });
+      await writeFile(path.join(runDir, "subagent-status.json"), JSON.stringify({
+        schema: "cyborg.subagent-status.v0.1",
+        run_id: "agent-researcher-old",
+        agent: "researcher",
+        task: "report",
+        status: "running",
+        created_at: oldTime,
+        updated_at: oldTime,
+        heartbeat_at: oldTime,
+        worker: "task"
+      }), "utf8");
+
+      const runs = await listSubagentRuns(root);
+
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.stale).toBe(true);
+      expect(runs[0]?.live).toBe(false);
     });
   });
 

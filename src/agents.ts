@@ -64,6 +64,14 @@ export const SubagentStatusSchema = z.object({
 
 export type SubagentStatus = z.output<typeof SubagentStatusSchema>;
 
+export interface SubagentRunListItem {
+  run_id: string;
+  file: string;
+  status: SubagentStatus;
+  live: boolean;
+  stale: boolean;
+}
+
 export function agentsDir(root = process.cwd()) {
   return path.join(path.resolve(root), ".cyborg", "agents");
 }
@@ -96,6 +104,45 @@ export async function listAgentProfiles(root = process.cwd()) {
       const profile = AgentProfileSchema.parse(JSON.parse(await readFile(path.join(dir, file), "utf8")));
       return { file: path.join(dir, file), profile };
     }));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+export async function listSubagentRuns(root = process.cwd(), options: { agent?: string; includeCompleted?: boolean } = {}) {
+  const runsDir = path.join(path.resolve(root), ".cyborg", "runs");
+  try {
+    const entries = await readdir(runsDir, { withFileTypes: true });
+    const runs: SubagentRunListItem[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith("agent-")) {
+        continue;
+      }
+      const file = path.join(runsDir, entry.name, "subagent-status.json");
+      try {
+        const status = await loadSubagentStatus(file);
+        if (options.agent && status.agent !== options.agent) {
+          continue;
+        }
+        if (!options.includeCompleted && !["starting", "running"].includes(status.status)) {
+          continue;
+        }
+        const live = ["starting", "running"].includes(status.status) && isLiveSubagentStatus(status, 0);
+        runs.push({
+          run_id: status.run_id,
+          file,
+          status,
+          live,
+          stale: ["starting", "running"].includes(status.status) && !live
+        });
+      } catch {
+        // Ignore run directories that do not belong to the current status schema.
+      }
+    }
+    return runs.sort((a, b) => b.status.updated_at.localeCompare(a.status.updated_at));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return [];
@@ -518,7 +565,7 @@ async function assertSubagentConcurrency(root: string, profile: AgentProfile) {
 
 function isLiveSubagentStatus(status: SubagentStatus, timeoutMs: number) {
   const timestamp = status.heartbeat_at ?? status.updated_at;
-  const staleAfterMs = Math.max(timeoutMs + 60_000, 5 * 60_000);
+  const staleAfterMs = timeoutMs > 0 ? Math.max(timeoutMs + 60_000, 5 * 60_000) : 5 * 60_000;
   if (Date.now() - new Date(timestamp).getTime() > staleAfterMs) {
     return false;
   }

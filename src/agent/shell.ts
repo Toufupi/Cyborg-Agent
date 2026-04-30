@@ -3,7 +3,7 @@ import { stdin as input, stdout as output } from "node:process";
 import readline from "node:readline";
 import { loadA2ATranscript } from "../a2a.js";
 import { listApprovals, resolveApproval } from "../approvals.js";
-import { listAgentProfiles, loadSubagentStatus, runSubagent } from "../agents.js";
+import { listAgentProfiles, listSubagentRuns, loadSubagentStatus, runSubagent } from "../agents.js";
 import { loadConfig } from "../config.js";
 import { listHooks } from "../hooks.js";
 import { doctorCyborg } from "../doctor.js";
@@ -154,6 +154,8 @@ async function runSlashCommand(line: string, state: ShellState): Promise<ShellRe
       return { output: await formatHooks(state.root) };
     case "/agents":
       return { output: await formatAgents(state.root) };
+    case "/agent-runs":
+      return { output: await formatAgentRuns(state.root, args) };
     case "/policies":
       return { output: await formatPolicies(state.root) };
     case "/approvals":
@@ -276,6 +278,23 @@ async function formatAgents(root: string) {
     return "No agents registered.";
   }
   return agents.map(({ profile }) => `${profile.name} [${profile.model_profile}] - ${profile.description ?? "no description"}`).join("\n");
+}
+
+async function formatAgentRuns(root: string, args: string[]) {
+  const includeCompleted = args.includes("--all");
+  const agentArgIndex = args.findIndex((arg) => arg === "--agent");
+  const agent = agentArgIndex >= 0 ? args[agentArgIndex + 1] : undefined;
+  const runs = await listSubagentRuns(root, { agent, includeCompleted });
+  if (runs.length === 0) {
+    return "No subagent runs found.";
+  }
+  return runs.map((run) => {
+    const marker = run.stale ? "stale" : run.live ? "live" : "done";
+    const progress = run.status.progress?.phase
+      ? ` ${run.status.progress.phase}${run.status.progress.current_step ? `:${run.status.progress.current_step}` : ""}`
+      : "";
+    return `${run.run_id} [${run.status.agent}] ${run.status.status}/${marker}${progress}\n  ${run.file}`;
+  }).join("\n");
 }
 
 async function formatPolicies(root: string) {
@@ -464,6 +483,7 @@ function helpText() {
     "  /tasks                         List task configs",
     "  /hooks                         List lifecycle hooks",
     "  /agents                        List agent profiles",
+    "  /agent-runs [--all]            List subagent lifecycle runs",
     "  /policies                      List security policies",
     "  /approvals                     List pending approvals",
     "  /context                       Print compact tool context",

@@ -136,6 +136,7 @@ npm run cyborg -- memory extract .cyborg\runs\agent-...\run.json
 npm run cyborg -- eval planner
 npm run cyborg -- eval planner --live --output .cyborg\evals\planner-live.json
 npm run cyborg -- agent list
+npm run cyborg -- agent runs --all
 npm run cyborg -- agent run researcher research-progress
 npm run cyborg -- agent run researcher research-progress --worker planner
 npm run cyborg -- agent cancel .cyborg\runs\agent-researcher-...\subagent-status.json
@@ -158,6 +159,7 @@ First shell commands:
 /tasks
 /hooks
 /agents
+/agent-runs --all
 /policies
 /approvals
 /context
@@ -409,6 +411,7 @@ Commands:
 ```powershell
 npm run cyborg -- agent add agents\researcher.md
 npm run cyborg -- agent list
+npm run cyborg -- agent runs --all
 npm run cyborg -- agent run researcher research-progress
 npm run cyborg -- agent transcript .cyborg\runs\agent-researcher-...\run.json
 npm run cyborg -- agent status .cyborg\runs\agent-researcher-...\run.json
@@ -433,6 +436,16 @@ Status values:
 The status file is intentionally separate from `run.json` and `a2a.json`: `run.json` is the event log, `a2a.json` is the parent/subagent transcript, and `subagent-status.json` is the latest lifecycle snapshot that schedulers or future TUI views can poll cheaply.
 
 Runtime state includes `worker`, `heartbeat_at`, `progress`, `pid`, and `cancel_requested_at`. Task workers emit step-level `progress` A2A messages. `agent cancel <run>` marks the status as cancelled; the worker loop polls that file and aborts the running tool process. Timeouts also abort the active invocation and finish with `subagent_timeout`.
+
+Use `agent runs` to list active or historical subagent lifecycle records:
+
+```powershell
+npm run cyborg -- agent runs
+npm run cyborg -- agent runs --all
+npm run cyborg -- agent runs --agent researcher --json
+```
+
+The list marks currently live workers, stale running statuses, and completed runs. This gives the scheduler and future TUI a cheap management surface without loading every run transcript.
 
 ## A2A Protocol
 

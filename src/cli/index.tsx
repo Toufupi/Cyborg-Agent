@@ -16,7 +16,7 @@ import { buildToolIndex } from "../agent/tool-context.js";
 import { listRuns } from "../session.js";
 import { startAgentShell } from "../agent/shell.js";
 import { addHook, listHooks } from "../hooks.js";
-import { addAgentProfile, cancelSubagentStatus, listAgentProfiles, loadSubagentStatus, runSubagent, runToolBuilderSubagent } from "../agents.js";
+import { addAgentProfile, cancelSubagentStatus, listAgentProfiles, listSubagentRuns, loadSubagentStatus, runSubagent, runToolBuilderSubagent } from "../agents.js";
 import { loadA2ATranscript } from "../a2a.js";
 import { addPolicy, listPolicies, loadPolicy } from "../policy.js";
 import { listApprovals, resolveApproval } from "../approvals.js";
@@ -450,6 +450,33 @@ agent.command("run")
   .action(async (name: string, taskName: string, options: { worker: "task" | "planner" }) => {
     const result = await runSubagent(name, taskName, process.cwd(), { worker: options.worker });
     console.log(JSON.stringify({ ok: true, run: result.file }, null, 2));
+  });
+
+agent.command("runs")
+  .option("--agent <name>", "Filter by agent profile name")
+  .option("--all", "Include completed, failed, and cancelled runs")
+  .option("--json", "Print JSON")
+  .description("List subagent lifecycle runs and stale/running status.")
+  .action(async (options: { agent?: string; all?: boolean; json?: boolean }) => {
+    const runs = await listSubagentRuns(process.cwd(), {
+      agent: options.agent,
+      includeCompleted: options.all
+    });
+    if (options.json) {
+      console.log(JSON.stringify({ ok: true, runs }, null, 2));
+      return;
+    }
+    if (runs.length === 0) {
+      console.log("No subagent runs found.");
+      return;
+    }
+    runs.forEach((run) => {
+      const progress = run.status.progress?.phase
+        ? ` ${run.status.progress.phase}${run.status.progress.current_step ? `:${run.status.progress.current_step}` : ""}`
+        : "";
+      const marker = run.stale ? "stale" : run.live ? "live" : "done";
+      console.log(`${run.run_id}\t${run.status.agent}\t${run.status.status}\t${marker}${progress}\t${run.file}`);
+    });
   });
 
 agent.command("transcript")

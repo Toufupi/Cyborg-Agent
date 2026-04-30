@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 
 const glyphs = "01";
 
-export function MatrixRain({ active, width = 36 }: { active: boolean; width?: number }) {
+export function MatrixRain({ active, width = 36, rows = 3 }: { active: boolean; width?: number; rows?: number }) {
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -14,28 +14,42 @@ export function MatrixRain({ active, width = 36 }: { active: boolean; width?: nu
     return () => clearInterval(timer);
   }, [active]);
 
-  const cells = useMemo(() => buildCells(width, tick, active), [width, tick, active]);
+  const lines = useMemo(() => buildLines(width, rows, tick, active), [width, rows, tick, active]);
 
   return (
-    <Box>
-      {cells.map((cell, index) => (
-        <Text key={`${index}-${cell.char}`} color={cell.color} bold={cell.bold}>
-          {cell.char}
-        </Text>
+    <Box flexDirection="column">
+      {lines.map((line, rowIndex) => (
+        <Box key={rowIndex}>
+          {line.map((cell, index) => (
+            <Text key={`${rowIndex}-${index}-${cell.char}`} color={cell.color} bold={cell.bold}>
+              {cell.char}
+            </Text>
+          ))}
+        </Box>
       ))}
     </Box>
   );
 }
 
-function buildCells(width: number, tick: number, active: boolean) {
-  const head = active ? tick % Math.max(1, width) : -1;
+function buildLines(width: number, rows: number, tick: number, active: boolean) {
+  return Array.from({ length: rows }, (_, rowIndex) => buildCells(width, rowIndex, tick, active));
+}
+
+function buildCells(width: number, rowIndex: number, tick: number, active: boolean) {
+  const head = active ? (tick + rowIndex * 7) % Math.max(1, width) : -1;
   return Array.from({ length: width }, (_, index) => {
-    const charIndex = Math.abs((index * 7 + tick * 3) % glyphs.length);
+    const charIndex = seededBit(index, rowIndex, tick);
     const distance = head < 0 ? 99 : Math.abs(index - head);
+    const shimmer = seededBit(index + tick, rowIndex, tick + 11) === 1;
     return {
       char: glyphs[charIndex] ?? "0",
-      color: distance <= 1 ? "#00ff41" : distance <= 5 ? "#00a83b" : "#005f26",
+      color: distance <= 1 ? "#00ff41" : distance <= 5 || shimmer ? "#00a83b" : "#005f26",
       bold: distance <= 1
     };
   });
+}
+
+function seededBit(index: number, rowIndex: number, tick: number) {
+  const value = (index + 1) * 1103515245 + (rowIndex + 3) * 12345 + tick * 2654435761;
+  return Math.abs(value >>> 7) % 2;
 }

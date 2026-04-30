@@ -235,7 +235,7 @@ function ChatHeader({ active }: { active: boolean }) {
       <Box>
         <Text bold color="green">Cyborg-Agent</Text>
         <Text color="gray">  </Text>
-        <MatrixRain active={active} width={32} />
+        <MatrixRain active={active} width={32} rows={3} />
       </Box>
       <Text color="gray">{active ? "neural routing online" : "A2C2A-first, small-model friendly agent shell"}</Text>
     </Box>

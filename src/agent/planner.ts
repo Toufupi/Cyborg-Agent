@@ -2,14 +2,15 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { chooseModel } from "../model-router.js";
 import { loadConfig } from "../config.js";
-import { getTool, listTools } from "../registry.js";
+import { addTool, getTool, listTools } from "../registry.js";
 import { runInvocation } from "../runner.js";
 import { cyborgEnv } from "../runtime.js";
-import { addEvent, createSession, saveSession } from "../session.js";
+import { addEvent, createSession, listRuns, saveSession } from "../session.js";
 import { listTasks } from "../task.js";
 import { prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
 import type { JsonValue } from "../types.js";
 import { OpenAICompatibleModelClient, type ModelClient } from "../model-client.js";
+import { createNodeTool } from "../tool-creator.js";
 import { buildToolIndex } from "./tool-context.js";
 import { runTask } from "./task-runner.js";
 
@@ -29,6 +30,20 @@ const AgentStepSchema = z.discriminatedUnion("kind", [
     kind: z.literal("inspect_tool"),
     tool: z.string().min(1),
     include: z.enum(["help", "manifest", "both"]).default("manifest"),
+    reason: z.string().default("")
+  }),
+  z.object({
+    kind: z.literal("inspect_run"),
+    prefix: z.string().min(1).optional(),
+    limit: z.number().int().positive().max(10).default(3),
+    reason: z.string().default("")
+  }),
+  z.object({
+    kind: z.literal("create_tool"),
+    name: z.string().min(1).regex(/^[a-z][a-z0-9-]*$/),
+    description: z.string().max(240).optional(),
+    category: z.string().min(1).default("generated"),
+    register: z.boolean().default(true),
     reason: z.string().default("")
   }),
   z.object({
@@ -220,6 +235,44 @@ async function executeAgentStep(
       observation
     };
   }
+  if (plan.kind === "inspect_run") {
+    const runs = await listRuns(state.root, plan.prefix);
+    return {
+      ok: true,
+      done: false,
+      output: "",
+      observation: {
+        runs: runs.slice(0, plan.limit).map((run) => ({
+          id: run.id,
+          file: run.file,
+          event_count: Array.isArray((run.run as { events?: unknown[] }).events)
+            ? (run.run as { events: unknown[] }).events.length
+            : 0
+        }))
+      } satisfies JsonValue
+    };
+  }
+  if (plan.kind === "create_tool") {
+    const created = await createNodeTool(state.root, {
+      name: plan.name,
+      description: plan.description,
+      category: plan.category
+    });
+    const registered = plan.register ? await addTool(created.registrationFile, state.root) : undefined;
+    return {
+      ok: true,
+      done: false,
+      output: "",
+      observation: {
+        toolRoot: created.toolRoot,
+        registrationFile: created.registrationFile,
+        registered: registered ? {
+          name: registered.registration.name,
+          output: registered.output
+        } : null
+      } satisfies JsonValue
+    };
+  }
   if (plan.kind === "answer" || plan.kind === "final") {
     return {
       ok: true,
@@ -355,11 +408,14 @@ function plannerSystemPrompt() {
     "Choose one step kind:",
     "{\"kind\":\"inspect_context\",\"reason\":\"short\"}",
     "{\"kind\":\"inspect_tool\",\"tool\":\"name\",\"include\":\"manifest\",\"reason\":\"short\"}",
+    "{\"kind\":\"inspect_run\",\"prefix\":\"optional-prefix\",\"limit\":3,\"reason\":\"short\"}",
+    "{\"kind\":\"create_tool\",\"name\":\"semantic-tool-name\",\"description\":\"short\",\"category\":\"research\",\"register\":true,\"reason\":\"short\"}",
     "{\"kind\":\"run_task\",\"task\":\"name\",\"confidence\":0.0,\"reason\":\"short\"}",
     "{\"kind\":\"call_tool\",\"tool\":\"name\",\"request\":{\"a2c2a\":\"0.1\",\"action\":\"domain.action\",\"input\":{},\"meta\":{}},\"confidence\":0.0,\"reason\":\"short\"}",
     "{\"kind\":\"answer\",\"message\":\"short answer\",\"confidence\":0.0,\"reason\":\"short\"}",
     "{\"kind\":\"final\",\"message\":\"final answer\",\"confidence\":0.0,\"reason\":\"short\"}",
     "Inspect a tool manifest before calling it if the action/input contract is unclear.",
+    "Use create_tool only when no registered tool or task can satisfy a repeatable capability.",
     "Prefer registered tasks for recurring goals. Prefer call_tool when a tool directly solves the goal.",
     "Use only tools and tasks listed in context."
   ].join("\n");

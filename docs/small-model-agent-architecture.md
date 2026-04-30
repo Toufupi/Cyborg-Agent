@@ -57,7 +57,7 @@ goal
   -> compact context of tools and tasks
   -> OpenAI-compatible chat completion with JSON response_format
   -> validated step JSON
-  -> inspect_context | inspect_tool | run_task | call_tool | answer | final
+  -> inspect_context | inspect_tool | inspect_run | create_tool | run_task | call_tool | answer | final
   -> A2C2A tool execution or discovery command
   -> observation appended to history
   -> next model step
@@ -84,6 +84,8 @@ The model-facing plan is intentionally tiny:
 This is the key shift from runtime skeleton to agent behavior: Cyborg can now ask a model what to do, validate that decision, execute a registered deterministic capability, and feed structured errors back for repair.
 
 The loop is multi-step. A small model can inspect a selected tool manifest before constructing the A2C2A request, then read the tool result before producing a final answer.
+
+The loop can now start self-improvement work. `create_tool` creates a local Node A2C2A tool scaffold and can register it immediately, while `inspect_run` gives the model compact access to previous run history. This is not full autonomous coding yet, but it is the first durable code-knowledge step.
 
 Implemented v0.2 additions:
 

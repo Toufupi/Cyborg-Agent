@@ -201,6 +201,18 @@ The planner must return one small JSON object:
 or:
 
 ```json
+{ "kind": "create_tool", "name": "paper-ranker", "description": "Rank research papers.", "category": "research", "register": true }
+```
+
+or:
+
+```json
+{ "kind": "inspect_run", "prefix": "research-progress", "limit": 3 }
+```
+
+or:
+
+```json
 { "kind": "run_task", "task": "research-progress", "confidence": 0.9, "reason": "registered task" }
 ```
 
@@ -244,6 +256,8 @@ Implemented v0.3 runtime pieces:
 - network policy fields for allow/deny/ask host control;
 - subagent timeout, cancellation state, pid metadata, and profile concurrency limit;
 - `research-fetcher` sources: `sample`, `arxiv`, `arxiv:<query>`, `rss:<url>`, `github:<query>`, and direct RSS/Atom URLs.
+- self-improvement step `create_tool`, which creates a local Node A2C2A tool scaffold and can register it immediately;
+- run-memory step `inspect_run`, which lets the model inspect compact run history before deciding.
 
 Register the built-in research fetcher:
 

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { runAgentGoal } from "../src/agent/planner.js";
 import type { ModelClient } from "../src/model-client.js";
 import { addTool } from "../src/registry.js";
+import { listTools } from "../src/registry.js";
 import { addTask } from "../src/task.js";
 import type { JsonValue } from "../src/types.js";
 import { fakeToolRegistration, withTempWorkspace, writeJson } from "./helpers.js";
@@ -192,6 +193,38 @@ describe("agent planner loop", () => {
 
       expect(result.output).toContain("Escalated");
       expect(result.attempts.some((attempt) => attempt.model === "large")).toBe(true);
+    });
+  });
+
+  it("creates and registers a reusable tool from an agent step", async () => {
+    await withTempWorkspace(async (root) => {
+      const modelClient = new FakeModelClient([
+        {
+          kind: "create_tool",
+          name: "paper-ranker",
+          description: "Rank research papers for a topic.",
+          category: "research",
+          register: true,
+          reason: "repeatable capability is missing"
+        },
+        {
+          kind: "inspect_context",
+          reason: "verify registration"
+        },
+        {
+          kind: "final",
+          message: "Created paper-ranker.",
+          confidence: 1,
+          reason: "tool registered"
+        }
+      ]);
+
+      const result = await runAgentGoal("create a paper ranking tool", root, { modelClient, maxSteps: 3 });
+      const tools = await listTools(root);
+
+      expect(result.output).toBe("Created paper-ranker.");
+      expect(tools.map(({ registration }) => registration.name)).toContain("paper-ranker");
+      expect(result.steps.map((step) => step.plan.kind)).toEqual(["create_tool", "inspect_context", "final"]);
     });
   });
 });

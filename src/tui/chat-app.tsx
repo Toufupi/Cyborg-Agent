@@ -185,7 +185,7 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
 
   return (
     <Box flexDirection="column">
-      <ChatHeader active={introActive || busy} />
+      <ChatHeader active={introActive || busy} status={{ ...status, busy }} />
       <Box flexDirection="column" minHeight={12}>
         {visibleRows.map((row) => <MessageRow key={row.id} row={row} />)}
       </Box>
@@ -229,17 +229,52 @@ function AnchoredInputFrame({ children, input, busy }: { children: React.ReactNo
   );
 }
 
-function ChatHeader({ active }: { active: boolean }) {
+function ChatHeader({ active, status }: { active: boolean; status: ChatStatus }) {
+  const ctx = `${Math.round(status.contextPressure.used_ratio * 100)}%`;
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1} marginBottom={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1} paddingY={1} marginBottom={1}>
       <Box>
         <BinaryRobotLogo active={active} />
-        <Box flexDirection="column" marginLeft={2}>
-          <Text bold color="green">Cyborg-Agent</Text>
+        <Box flexDirection="column" marginLeft={2} minWidth={34}>
+          <Text>
+            <Text bold color="green">Cyborg-Agent</Text>
+            <Text color="gray"> / terminal agent shell</Text>
+          </Text>
           <MatrixRain active={active} width={30} rows={4} />
         </Box>
+        <Box flexDirection="column" marginLeft={3} minWidth={38}>
+          <Text>
+            <Text color={status.busy ? "yellow" : "green"} bold>{status.busy ? "RUNNING" : "READY"}</Text>
+            <Text color="gray">  session </Text>
+            <Text>{shortId(status.session)}{status.resumed ? "*" : ""}</Text>
+          </Text>
+          <Text>
+            <Text color="gray">small </Text>
+            <Text color="cyan">{compactModel(status.smallModel)}</Text>
+            {status.largeModel ? <Text color="gray">  large </Text> : null}
+            {status.largeModel ? <Text color="magenta">{compactModel(status.largeModel)}</Text> : null}
+          </Text>
+          <Text>
+            <Text color="gray">mode </Text>
+            <Text color="yellow">{status.routing}</Text>
+            <Text color="gray">  perm </Text>
+            <Text color={status.permissionMode === "bypass-all" ? "red" : "green"}>{compactPermission(status.permissionMode)}</Text>
+          </Text>
+          <Text>
+            <Text color="gray">tok </Text>
+            <Text>{status.tokens}</Text>
+            <Text color="gray">  ctx </Text>
+            <Text color={pressureColor(status.contextPressure.level)}>{ctx}</Text>
+            <Text color="gray">  sub </Text>
+            <Text>{status.liveSubagents}</Text>
+            <Text color="gray">  app </Text>
+            <Text color={status.pendingApprovals > 0 ? "yellow" : "green"}>{status.pendingApprovals}</Text>
+          </Text>
+        </Box>
       </Box>
-      <Text color="gray">{active ? "neural routing online" : "A2C2A-first, small-model friendly agent shell"}</Text>
+      <Box marginTop={1}>
+        <Text color="gray">{active ? "neural routing online" : "A2C2A-first, small-model friendly agent shell"}</Text>
+      </Box>
     </Box>
   );
 }
@@ -305,30 +340,18 @@ function MessageRow({ row }: { row: ChatRow }) {
 }
 
 function ChatStatusLine({ status }: { status: ChatStatus }) {
-  const ctx = `${Math.round(status.contextPressure.used_ratio * 100)}%`;
   return (
     <Box borderStyle="single" borderColor="gray" paddingX={1} marginTop={1}>
       <Text color={status.busy ? "yellow" : "green"}>{status.busy ? "run" : "idle"}</Text>
-      <Text color="gray"> | ses </Text>
-      <Text>{shortId(status.session)}{status.resumed ? "*" : ""}</Text>
-      <Text color="gray"> | s </Text>
-      <Text color="cyan">{compactModel(status.smallModel)}</Text>
-      {status.largeModel ? <Text color="gray"> | l </Text> : null}
-      {status.largeModel ? <Text color="magenta">{compactModel(status.largeModel)}</Text> : null}
-      <Text color="gray"> | </Text>
-      <Text color="yellow">{status.routing}</Text>
-      <Text color="gray"> | tok </Text>
-      <Text>{status.tokens}</Text>
-      <Text color="gray"> | app </Text>
-      <Text color={status.pendingApprovals > 0 ? "yellow" : "green"}>{status.pendingApprovals}</Text>
-      <Text color="gray"> | den </Text>
+      <Text color="gray"> | denied </Text>
       <Text color={status.auditDenied > 0 ? "red" : "green"}>{status.auditDenied}</Text>
-      <Text color="gray"> | sub </Text>
-      <Text>{status.liveSubagents}</Text>
-      <Text color="gray"> | </Text>
-      <Text color={status.permissionMode === "bypass-all" ? "red" : "green"}>{compactPermission(status.permissionMode)}</Text>
-      <Text color="gray"> | ctx </Text>
-      <Text color={pressureColor(status.contextPressure.level)}>{ctx}</Text>
+      <Text color="gray"> | press </Text>
+      <Text color="cyan">/help</Text>
+      <Text color="gray"> for commands, </Text>
+      <Text color="cyan">/session</Text>
+      <Text color="gray"> for transcript, </Text>
+      <Text color="cyan">/exit</Text>
+      <Text color="gray"> to quit</Text>
     </Box>
   );
 }

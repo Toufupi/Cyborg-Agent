@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text } from "ink";
 
-const glyphs = "A2C2A01{}[]<>/\\|*-+=CYBORG";
+const glyphs = "01";
 
 export function MatrixRain({ active, width = 36 }: { active: boolean; width?: number }) {
   const [tick, setTick] = useState(0);

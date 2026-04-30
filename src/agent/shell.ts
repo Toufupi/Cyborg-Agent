@@ -78,7 +78,7 @@ export async function createShellState(root = process.cwd(), options: StartShell
 }
 
 export async function startAgentShell(root = process.cwd(), options: StartShellOptions = {}) {
-  const shouldUseInk = input.isTTY && !options.plain && (options.ink || process.platform !== "win32");
+  const shouldUseInk = input.isTTY && !options.plain;
   if (shouldUseInk) {
     const [{ default: React }, { render }, { ChatApp }] = await Promise.all([
       import("react"),
@@ -96,9 +96,7 @@ export async function startAgentShell(root = process.cwd(), options: StartShellO
   }
 
   const state = await createShellState(root, options);
-  const inputMode = process.platform === "win32" && !options.ink
-    ? "Native input mode for Windows IME. Use --ink for the animated TUI."
-    : "Plain native input mode.";
+  const inputMode = "Plain native input mode.";
   output.write([
     "Cyborg-Agent",
     state.resumed ? "Resumed interactive agent shell." : "Interactive agent shell.",

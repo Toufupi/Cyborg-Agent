@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Box, Text, measureElement, useApp, useCursor, useInput, type DOMElement } from "ink";
 import TextInput from "ink-text-input";
 import logSymbols from "log-symbols";
 import { listApprovals, resolveApproval, type ApprovalRequest } from "../approvals.js";
@@ -192,11 +192,39 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
       <ApprovalPanel approvals={approvals} />
       <ChatStatusLine status={{ ...status, busy }} />
       {completionHint ? <Text color="gray">{completionHint}</Text> : null}
-      <Box borderStyle="single" borderColor={busy ? "yellow" : "gray"} paddingX={1} marginTop={1}>
+      <AnchoredInputFrame input={input} busy={busy}>
         <Text color="green">cyborg</Text>
         <Text color="gray"> {busy ? "working" : "ready"} </Text>
         <TextInput value={input} onChange={setInput} onSubmit={submit} placeholder={busy ? "waiting for agent..." : "ask, /help, /tools, /exit"} />
-      </Box>
+      </AnchoredInputFrame>
+    </Box>
+  );
+}
+
+function AnchoredInputFrame({ children, input, busy }: { children: React.ReactNode; input: string; busy: boolean }) {
+  const { setCursorPosition } = useCursor();
+  const boxRef = useRef<DOMElement | null>(null);
+
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) {
+      setCursorPosition(undefined);
+      return;
+    }
+    const { height } = measureElement(box);
+    const top = box.yogaNode?.getComputedTop() ?? 0;
+    const left = box.yogaNode?.getComputedLeft() ?? 0;
+    const prompt = busy ? "cyborg working " : "cyborg ready ";
+    setCursorPosition({
+      x: Math.max(0, left + prompt.length + input.length + 2),
+      y: Math.max(0, top + height - 2)
+    });
+    return () => setCursorPosition(undefined);
+  }, [input, busy, setCursorPosition]);
+
+  return (
+    <Box ref={boxRef} borderStyle="single" borderColor={busy ? "yellow" : "gray"} paddingX={1} marginTop={1}>
+      {children}
     </Box>
   );
 }

@@ -28,6 +28,16 @@ describe("cli", () => {
     expect(result.stdout).toContain("memory");
   }, 30000);
 
+  it("documents the Windows IME-safe chat fallback and optional Ink UI", async () => {
+    const result = await runInvocation(cyborgInvocation(["chat", "--help"]));
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("--plain");
+    expect(result.stdout).toContain("--ink");
+    expect(result.stdout).toContain("IME");
+    expect(result.stdout).toContain("candidate windows");
+  });
+
   it("prints nested help for tool calls", async () => {
     const result = await runInvocation(cyborgInvocation(["tool", "call", "--help"]));
 

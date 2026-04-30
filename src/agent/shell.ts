@@ -61,6 +61,7 @@ export interface StartShellOptions {
   continueLatest?: boolean;
   modelClient?: ModelClient;
   plain?: boolean;
+  ink?: boolean;
 }
 
 export async function createShellState(root = process.cwd(), options: StartShellOptions = {}): Promise<ShellState> {
@@ -77,7 +78,8 @@ export async function createShellState(root = process.cwd(), options: StartShell
 }
 
 export async function startAgentShell(root = process.cwd(), options: StartShellOptions = {}) {
-  if (input.isTTY && !options.plain) {
+  const shouldUseInk = input.isTTY && !options.plain && (options.ink || process.platform !== "win32");
+  if (shouldUseInk) {
     const [{ default: React }, { render }, { ChatApp }] = await Promise.all([
       import("react"),
       import("ink"),
@@ -94,11 +96,15 @@ export async function startAgentShell(root = process.cwd(), options: StartShellO
   }
 
   const state = await createShellState(root, options);
+  const inputMode = process.platform === "win32" && !options.ink
+    ? "Native input mode for Windows IME. Use --ink for the animated TUI."
+    : "Plain native input mode.";
   output.write([
     "Cyborg-Agent",
     state.resumed ? "Resumed interactive agent shell." : "Interactive agent shell.",
     "Natural language goes to the planner. Slash commands stay deterministic.",
     "Type /help for commands, /session for context, /exit to quit.",
+    inputMode,
     `Session: ${state.session.id}${state.resumed ? " (resumed)" : ""}`,
     ""
   ].join("\n"));

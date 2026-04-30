@@ -235,11 +235,12 @@ function ChatHeader({ active, status }: { active: boolean; status: ChatStatus })
     <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1} paddingY={1} marginBottom={1}>
       <Box>
         <BinaryRobotLogo active={active} />
-        <Box flexDirection="column" marginLeft={2} minWidth={34}>
+        <Box flexDirection="column" marginLeft={3} minWidth={34}>
           <Text>
             <Text bold color="green">Cyborg-Agent</Text>
             <Text color="gray"> / terminal agent shell</Text>
           </Text>
+          <Text color="gray">Welcome back.</Text>
           <MatrixRain active={active} width={30} rows={4} />
         </Box>
         <Box flexDirection="column" marginLeft={3} minWidth={38}>
@@ -293,17 +294,21 @@ function BinaryRobotLogo({ active }: { active: boolean }) {
   const eye = active && tick % 4 === 0 ? "1" : "0";
   const antenna = active && tick % 2 === 0 ? "1" : "0";
   const lines = [
-    `   ${antenna}   `,
-    "  010  ",
-    ` 1${eye}0${eye}1 `,
-    " 10101 ",
-    " 0   0 "
+    `      ${antenna}      `,
+    "      |      ",
+    "   0111110   ",
+    "  111111111  ",
+    ` 11  ${eye} ${eye}  11 `,
+    " 111 010 111 ",
+    " 11111111111 ",
+    "   11   11   ",
+    "   10   01   "
   ];
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" minWidth={15}>
       {lines.map((line, index) => (
-        <Text key={index} color={index <= 1 ? "#00ff41" : index <= 3 ? "#00a83b" : "#005f26"} bold={index === 2}>
+        <Text key={index} color={index <= 2 ? "#00ff41" : index <= 6 ? "#00a83b" : "#005f26"} bold={index >= 3 && index <= 6}>
           {line}
         </Text>
       ))}

@@ -1,14 +1,14 @@
 # Agent Framework Notes
 
-Status: discussion notes before implementation
+Status: v0.1 implementation notes
 
-The Agent framework should build on the tool registry rather than bypass it.
+The Agent framework builds on the tool registry rather than bypassing it.
 
 ## Core Idea
 
 Cyborg-Agent is not just an LLM wrapper. It is a runtime that lets the Agent discover, call, repair, and evolve deterministic tools.
 
-The framework should separate:
+The framework separates:
 
 - planning and reasoning;
 - tool discovery;
@@ -32,7 +32,7 @@ User request
 
 ## Main Modules
 
-Recommended first modules:
+Current core modules:
 
 ```text
 src/
@@ -40,20 +40,22 @@ src/
     index.ts              # cyborg commands
   registry.ts             # .cyborg/tools management
   runner.ts               # controlled command execution
+  tool-runtime.ts         # runtime cwd, env, install, doctor
+  doctor.ts               # whole-workspace diagnostics
+  hooks.ts                # lifecycle event hooks
+  agents.ts               # agent profiles and subagent runs
+  a2a.ts                  # parent/subagent transcript
+  policy.ts               # permission policy and workspace guards
+  approvals.ts            # allow-once approval queue
   agent/
-    planner.ts            # decide whether a tool can help
     tool-context.ts       # collect help + manifest for relevant tools
-    request-builder.ts    # build A2C2A request JSON
-    repair-loop.ts        # retry from structured errors
-    session.ts            # session id, workspace, logs
-  runtime/
-    node.ts               # v0.1 supported runtime
-    python.ts             # planned extension
+    task-runner.ts        # deterministic task execution through A2C2A
+    shell.ts              # persistent command shell
 ```
 
 ## Node-First Runtime
 
-First implementation should support Node tools only.
+The first implementation supports Node tools only.
 
 Reasons:
 
@@ -87,7 +89,7 @@ The Agent framework should provide:
 cyborg shell
 ```
 
-This shell should set:
+The shell sets:
 
 ```text
 CYBORG_SHELL=1
@@ -96,13 +98,20 @@ CYBORG_TOOL_REGISTRY=<workspace>/.cyborg/tools
 CYBORG_SESSION_ID=<id>
 ```
 
-The shell is a protocol environment, not a full security sandbox. Later versions should add:
+The shell is a protocol environment, not a full OS sandbox. The current implementation includes:
 
 - workspace path enforcement;
 - permission policies;
 - audit logs;
 - command allowlists;
-- artifact tracking.
+- approval queue;
+- isolated Node tool runtimes.
+
+Still missing:
+
+- OS/container sandboxing for untrusted tools;
+- network permissions;
+- complete artifact tracking.
 
 ## Tool Use Policy
 

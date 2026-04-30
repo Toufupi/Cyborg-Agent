@@ -135,18 +135,20 @@ Each tool registration should declare:
 - required environment variables;
 - whether it requires Cyborg shell.
 
-For v0.1:
+Implemented for v0.1:
 
 - Node tools use `package.json` and lockfiles;
-- local tools can be called through `npm --prefix <tool> run ...`;
+- local tools declare `runtime.cwd`, `package_manager`, `install_strategy`, and `isolated`;
 - packaged tools can be called directly, for example `pagegen`;
 - Cyborg-Agent should not guess dependencies.
+- `cyborg tool doctor <name>` checks runtime health;
+- `cyborg tool env <name>` prints a compact machine-readable runtime summary;
+- `cyborg tool install <name>` runs the declared package manager in the tool runtime cwd.
 
 Future:
 
-- `cyborg tool install` can run dependency setup;
 - Python tools can declare venv or uv requirements;
-- dependency health can be checked before scheduled jobs.
+- tool-env installation strategy can move external repos into Cyborg-managed environments.
 
 ## Two-Model Strategy
 
@@ -252,7 +254,7 @@ load task config
 
 This gives us a practical personal Agent without requiring a giant context window.
 
-## Current v0.1 Skeleton
+## Current v0.1 Implementation
 
 Implemented commands:
 
@@ -260,13 +262,28 @@ Implemented commands:
 cyborg init
 cyborg config
 cyborg env
+cyborg doctor
 cyborg context
 cyborg model --reason fallback
 cyborg tool list
+cyborg tool info page-generator-cli
+cyborg tool help page-generator-cli render
+cyborg tool manifest page-generator-cli
 cyborg tool call page-generator-cli --request request.json
+cyborg tool doctor page-generator-cli
+cyborg tool env page-generator-cli
+cyborg tool install page-generator-cli
 cyborg task add examples\research-progress.daily.json
 cyborg task run research-progress
+cyborg task history research-progress
+cyborg hook list
+cyborg policy show
+cyborg approval list
+cyborg agent list
+cyborg agent run researcher research-progress
 cyborg tui
 ```
 
-The current `research-progress` demo uses Page-Generator-CLI to prove the task/config/tool/run-log loop. The next tool should be `research-fetcher`, which will turn the static demo payload into real source collection.
+The current `research-progress` demo uses Page-Generator-CLI to prove the task/config/tool/run-log loop. Hooks, agent profiles, A2A transcripts, subagent lifecycle status, policy checks, approvals, and runtime isolation are implemented at v0.1 skeleton level.
+
+The next tool should be `research-fetcher`, which will turn the static demo payload into real source collection.

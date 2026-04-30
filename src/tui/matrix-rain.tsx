@@ -10,7 +10,7 @@ export function MatrixRain({ active, width = 36 }: { active: boolean; width?: nu
     if (!active) {
       return;
     }
-    const timer = setInterval(() => setTick((value) => value + 1), 90);
+    const timer = setInterval(() => setTick((value) => value + 2), 35);
     return () => clearInterval(timer);
   }, [active]);
 
@@ -34,7 +34,7 @@ function buildCells(width: number, tick: number, active: boolean) {
     const distance = head < 0 ? 99 : Math.abs(index - head);
     return {
       char: glyphs[charIndex] ?? "0",
-      color: distance === 0 ? "white" : distance <= 2 ? "green" : distance <= 5 ? "greenBright" : "gray",
+      color: distance <= 1 ? "#00ff41" : distance <= 5 ? "#00a83b" : "#005f26",
       bold: distance <= 1
     };
   });

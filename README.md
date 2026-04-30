@@ -644,6 +644,7 @@ See:
 - [Small-Model Agent Architecture](docs/small-model-agent-architecture.md)
 - [Agent Framework Survey](docs/framework-survey.md)
 - [Release Readiness](docs/release-readiness.md)
+- [Claude Code Reference Notes](docs/claude-code-reference-notes.md)
 
 ## Runtime Direction
 

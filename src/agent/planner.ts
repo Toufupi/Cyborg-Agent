@@ -9,7 +9,7 @@ import { addEvent, createSession, listRuns, saveSession } from "../session.js";
 import { listTasks } from "../task.js";
 import { prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
 import type { JsonValue } from "../types.js";
-import { OpenAICompatibleModelClient, serializeModelError, type ModelClient } from "../model-client.js";
+import { completeJsonWithOptionalUsage, OpenAICompatibleModelClient, serializeModelError, type ModelClient, type ModelUsage } from "../model-client.js";
 import { runToolBuilderSubagent } from "../agents.js";
 import { addMemory, memoryContext, searchMemories } from "../memory.js";
 import { buildToolIndex } from "./tool-context.js";
@@ -93,6 +93,7 @@ export interface AgentAttempt {
   ok: boolean;
   code?: number | null;
   error_type?: string;
+  usage?: ModelUsage;
 }
 
 export interface AgentRunResult {
@@ -120,12 +121,21 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
   const attempts: AgentAttempt[] = [];
   const stepHistory: AgentAttempt[] = [];
   const observations: JsonValue[] = [];
+  const usage: AgentModelUsageEvent[] = [];
 
   try {
     for (let stepIndex = 0; stepIndex < maxSteps; stepIndex += 1) {
-      const plan = await requestStep(modelClient, smallModel, goal, context, observations);
+      const requested = await requestStep(modelClient, smallModel, goal, context, observations);
+      const plan = requested.plan;
+      usage.push({
+        phase: "plan",
+        model: smallModel.model,
+        role: smallModel.role,
+        usage: requested.usage
+      });
       finalPlan = plan;
       addEvent(session, "agent.plan", `Step ${stepIndex}: ${plan.kind}`, { step: stepIndex, plan });
+      addModelUsageEvent(session, usage.at(-1));
 
       const stepResult = await executeAgentStep(plan, {
         root,
@@ -136,7 +146,8 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
         smallModel,
         config,
         maxRepairAttempts,
-        attempts
+        attempts,
+        usage
       });
       const evaluation = evaluateAgentState({
         step: stepIndex,
@@ -150,7 +161,8 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
         plan,
         ok: stepResult.ok,
         code: stepResult.code,
-        error_type: stepResult.error_type
+        error_type: stepResult.error_type,
+        usage: requested.usage
       });
       observations.push({
         step: stepIndex,
@@ -190,6 +202,8 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
   if (!output) {
     output = JSON.stringify({ ok: false, error: "max_steps_exceeded", observations }, null, 2);
   }
+  const usageSummary = summarizeModelUsage(usage);
+  addEvent(session, "agent.usage", "Model usage summary.", usageSummary);
   addEvent(session, "agent.final", "Agent run finished.", { output });
   const saved = await saveSession(session);
   if (output) {
@@ -222,11 +236,14 @@ async function requestStep(
   context: JsonValue,
   observations: JsonValue
 ) {
-  const raw = await modelClient.completeJson(model, [
+  const result = await completeJsonWithOptionalUsage(modelClient, model, [
     { role: "system", content: plannerSystemPrompt() },
     { role: "user", content: JSON.stringify({ goal, context, observations }, null, 2) }
   ]);
-  return AgentPlanSchema.parse(raw);
+  return {
+    plan: AgentPlanSchema.parse(result.json),
+    usage: result.usage
+  };
 }
 
 async function requestRepair(
@@ -237,11 +254,14 @@ async function requestRepair(
   failedPlan: AgentPlan,
   errorText: string
 ) {
-  const raw = await modelClient.completeJson(model, [
+  const result = await completeJsonWithOptionalUsage(modelClient, model, [
     { role: "system", content: repairSystemPrompt() },
     { role: "user", content: JSON.stringify({ goal, context, failed_plan: failedPlan, tool_error: safeJson(errorText) }, null, 2) }
   ]);
-  return AgentPlanSchema.parse(raw);
+  return {
+    plan: AgentPlanSchema.parse(result.json),
+    usage: result.usage
+  };
 }
 
 async function executeAgentStep(
@@ -256,6 +276,7 @@ async function executeAgentStep(
     config: Awaited<ReturnType<typeof loadConfig>>;
     maxRepairAttempts: number;
     attempts: AgentAttempt[];
+    usage: AgentModelUsageEvent[];
   }
 ): Promise<AgentStepResult> {
   if (plan.kind === "inspect_context") {
@@ -360,10 +381,17 @@ async function executeAgentStep(
   for (let attempt = 1; attempt <= state.maxRepairAttempts; attempt += 1) {
     const fallback = shouldFallback(state.config, lastResult.body, attempt);
     const repairModel = fallback ? chooseModel(state.config, "repair_failed") : state.smallModel;
-    const repairPlan = await requestRepair(state.modelClient, repairModel, state.goal, state.context, plan, lastResult.body);
+    const repaired = await requestRepair(state.modelClient, repairModel, state.goal, state.context, plan, lastResult.body);
+    const repairPlan = repaired.plan;
+    state.usage.push({
+      phase: "repair",
+      model: repairModel.model,
+      role: repairModel.role,
+      usage: repaired.usage
+    });
     if (repairPlan.kind !== "call_tool") {
       const message = repairPlan.kind === "answer" || repairPlan.kind === "final" ? repairPlan.message : JSON.stringify(repairPlan);
-      state.attempts.push({ attempt, model: repairModel.model, plan: repairPlan, ok: true });
+      state.attempts.push({ attempt, model: repairModel.model, plan: repairPlan, ok: true, usage: repaired.usage });
       return { ok: true, done: true, output: message, observation: { message } satisfies JsonValue };
     }
     lastResult = await callToolWithRequest(repairPlan.tool, repairPlan.request, state.root, state.sessionId);
@@ -374,7 +402,8 @@ async function executeAgentStep(
       plan: repairPlan,
       ok: lastResult.ok,
       code: lastResult.code,
-      error_type: extractErrorType(lastResult.body)
+      error_type: extractErrorType(lastResult.body),
+      usage: repaired.usage
     });
     if (lastResult.ok) {
       return {
@@ -513,6 +542,51 @@ function extractErrorType(body: string) {
     return undefined;
   }
   return typeof error.type === "string" ? error.type : undefined;
+}
+
+interface AgentModelUsageEvent {
+  phase: "plan" | "repair";
+  model: string;
+  role: "small" | "large";
+  usage?: ModelUsage;
+}
+
+function addModelUsageEvent(session: Parameters<typeof addEvent>[0], event: AgentModelUsageEvent | undefined) {
+  if (!event) {
+    return;
+  }
+  addEvent(session, "agent.model", `Model ${event.model} ${event.phase}`, event);
+}
+
+function summarizeModelUsage(events: AgentModelUsageEvent[]) {
+  const summary = {
+    calls: events.length,
+    small: emptyUsageBucket(),
+    large: emptyUsageBucket(),
+    by_model: {} as Record<string, ReturnType<typeof emptyUsageBucket>>
+  };
+  for (const event of events) {
+    addUsage(summary[event.role], event.usage);
+    summary.by_model[event.model] ??= emptyUsageBucket();
+    addUsage(summary.by_model[event.model], event.usage);
+  }
+  return summary;
+}
+
+function emptyUsageBucket() {
+  return {
+    calls: 0,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0
+  };
+}
+
+function addUsage(bucket: ReturnType<typeof emptyUsageBucket>, usage?: ModelUsage) {
+  bucket.calls += 1;
+  bucket.prompt_tokens += usage?.prompt_tokens ?? 0;
+  bucket.completion_tokens += usage?.completion_tokens ?? 0;
+  bucket.total_tokens += usage?.total_tokens ?? 0;
 }
 
 async function rememberAgentRun(root: string, input: { goal: string; output: string; run: string; finalPlan: AgentPlan }) {

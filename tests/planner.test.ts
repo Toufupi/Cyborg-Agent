@@ -14,7 +14,7 @@ import { fakeToolRegistration, withTempWorkspace, writeJson } from "./helpers.js
 class FakeModelClient implements ModelClient {
   calls = 0;
 
-  constructor(private readonly responses: JsonValue[]) {}
+  constructor(private readonly responses: JsonValue[], private readonly usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) {}
 
   async completeJson() {
     const response = this.responses[this.calls];
@@ -23,6 +23,13 @@ class FakeModelClient implements ModelClient {
       throw new Error("No fake model response configured.");
     }
     return response;
+  }
+
+  async completeJsonWithUsage() {
+    return {
+      json: await this.completeJson(),
+      usage: this.usage
+    };
   }
 }
 
@@ -51,16 +58,20 @@ describe("agent planner loop", () => {
 
       const modelClient = new FakeModelClient([
         { kind: "run_task", task: "daily-report", confidence: 0.9, reason: "registered recurring task" }
-      ]);
+      ], { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 });
 
       const result = await runAgentGoal("make the daily report", root, { modelClient });
-      const run = JSON.parse(await readFile(result.file, "utf8")) as { events: Array<{ type: string }> };
+      const run = JSON.parse(await readFile(result.file, "utf8")) as {
+        events: Array<{ type: string; data?: { small?: { total_tokens?: number } } }>;
+      };
 
       expect(result.output).toContain("\"ok\": true");
       expect(result.plan.kind).toBe("run_task");
       expect(result.steps).toHaveLength(1);
       expect(run.events.some((event) => event.type === "agent.plan")).toBe(true);
       expect(run.events.some((event) => event.type === "agent.evaluation")).toBe(true);
+      expect(run.events.some((event) => event.type === "agent.model")).toBe(true);
+      expect(run.events.find((event) => event.type === "agent.usage")?.data?.small?.total_tokens).toBe(120);
       expect(modelClient.calls).toBe(1);
     });
   });

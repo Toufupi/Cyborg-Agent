@@ -80,6 +80,26 @@ describe("model client helpers", () => {
     }
   });
 
+  it("returns usage metadata from OpenAI-compatible responses", async () => {
+    const { server, url } = await startFakeOpenAICompatibleServer({ ok: true });
+    try {
+      const result = await new OpenAICompatibleModelClient().completeJsonWithUsage({
+        base_url: url,
+        model: "fake-small",
+        role: "small"
+      }, [
+        { role: "system", content: "Return JSON." },
+        { role: "user", content: "hello" }
+      ]);
+
+      expect(result.json).toEqual({ ok: true });
+      expect(result.usage?.total_tokens).toBe(18);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+
   it("returns structured smoke errors when the endpoint is down", async () => {
     const result = await smokeModel({
       base_url: "http://127.0.0.1:9/v1",
@@ -115,7 +135,12 @@ async function startFakeOpenAICompatibleServer(response: unknown) {
           message: {
             content: JSON.stringify(response)
           }
-        }]
+        }],
+        usage: {
+          prompt_tokens: 11,
+          completion_tokens: 7,
+          total_tokens: 18
+        }
       }));
     });
   });

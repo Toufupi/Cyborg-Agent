@@ -10,6 +10,17 @@ export interface ModelClient {
   completeJson(profile: ModelProfile, messages: ModelMessage[]): Promise<JsonValue>;
 }
 
+export interface ModelUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
+export interface ModelJsonResult {
+  json: JsonValue;
+  usage?: ModelUsage;
+}
+
 export class ModelRequestError extends Error {
   readonly code: string;
   readonly status?: number;
@@ -34,6 +45,11 @@ export class ModelRequestError extends Error {
 
 export class OpenAICompatibleModelClient implements ModelClient {
   async completeJson(profile: ModelProfile, messages: ModelMessage[]): Promise<JsonValue> {
+    const result = await this.completeJsonWithUsage(profile, messages);
+    return result.json;
+  }
+
+  async completeJsonWithUsage(profile: ModelProfile, messages: ModelMessage[]): Promise<ModelJsonResult> {
     const url = new URL("chat/completions", ensureTrailingSlash(profile.base_url));
     const headers: Record<string, string> = {
       "content-type": "application/json"
@@ -75,6 +91,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
 
     const body = await response.json() as {
       choices?: Array<{ message?: { content?: string } }>;
+      usage?: ModelUsage;
     };
     const content = body.choices?.[0]?.message?.content;
     if (!content) {
@@ -84,14 +101,17 @@ export class OpenAICompatibleModelClient implements ModelClient {
         url: url.toString()
       });
     }
-    return parseJsonContent(content);
+    return {
+      json: parseJsonContent(content),
+      usage: normalizeUsage(body.usage)
+    };
   }
 }
 
 export async function smokeModel(profile: ModelProfile, client: ModelClient = new OpenAICompatibleModelClient()) {
   const started = Date.now();
   try {
-    const result = await client.completeJson(profile, [
+    const result = await completeJsonWithOptionalUsage(client, profile, [
       {
         role: "system",
         content: "Return exactly this JSON object and no markdown: {\"ok\":true,\"kind\":\"model_smoke\"}"
@@ -102,11 +122,12 @@ export async function smokeModel(profile: ModelProfile, client: ModelClient = ne
       }
     ]);
     return {
-      ok: typeof result === "object" && result !== null && !Array.isArray(result) && result.ok === true,
+      ok: typeof result.json === "object" && result.json !== null && !Array.isArray(result.json) && result.json.ok === true,
       model: profile.model,
       base_url: profile.base_url,
       latency_ms: Date.now() - started,
-      result
+      usage: result.usage,
+      result: result.json
     };
   } catch (error) {
     return {
@@ -117,6 +138,15 @@ export async function smokeModel(profile: ModelProfile, client: ModelClient = ne
       error: serializeModelError(error)
     };
   }
+}
+
+export async function completeJsonWithOptionalUsage(client: ModelClient, profile: ModelProfile, messages: ModelMessage[]): Promise<ModelJsonResult> {
+  if (supportsUsage(client)) {
+    return client.completeJsonWithUsage(profile, messages);
+  }
+  return {
+    json: await client.completeJson(profile, messages)
+  };
 }
 
 export function parseJsonContent(content: string): JsonValue {
@@ -150,6 +180,21 @@ export function serializeModelError(error: unknown) {
   return {
     type: "model_error",
     message: error instanceof Error ? error.message : String(error)
+  };
+}
+
+function supportsUsage(client: ModelClient): client is ModelClient & { completeJsonWithUsage(profile: ModelProfile, messages: ModelMessage[]): Promise<ModelJsonResult> } {
+  return typeof (client as { completeJsonWithUsage?: unknown }).completeJsonWithUsage === "function";
+}
+
+function normalizeUsage(usage: ModelUsage | undefined) {
+  if (!usage) {
+    return undefined;
+  }
+  return {
+    prompt_tokens: typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : undefined,
+    completion_tokens: typeof usage.completion_tokens === "number" ? usage.completion_tokens : undefined,
+    total_tokens: typeof usage.total_tokens === "number" ? usage.total_tokens : undefined
   };
 }
 

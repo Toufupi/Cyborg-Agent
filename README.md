@@ -646,6 +646,14 @@ small model first
 
 This keeps recurring tasks cheap.
 
+Model usage is recorded from OpenAI-compatible `usage` responses in each agent run:
+
+```powershell
+npm run cyborg -- usage
+```
+
+The summary separates `small`, `large`, and `by_model` token counts, so we can show when Cyborg solved work with the cheap model and when it actually escalated.
+
 Model profiles can use either `api_key_env` or a local-only `api_key` field:
 
 ```json

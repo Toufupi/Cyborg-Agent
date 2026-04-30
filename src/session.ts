@@ -51,11 +51,19 @@ export async function listRuns(root = process.cwd(), prefix?: string) {
       .filter((name) => prefix ? name.startsWith(prefix) : true)
       .sort()
       .reverse();
-    return Promise.all(dirs.map(async (dir) => {
+    const runs = await Promise.all(dirs.map(async (dir) => {
       const file = path.join(runsDir, dir, "run.json");
-      const run = JSON.parse(await readFile(file, "utf8")) as unknown;
-      return { id: dir, file, run };
+      try {
+        const run = JSON.parse(await readFile(file, "utf8")) as unknown;
+        return { id: dir, file, run };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          return undefined;
+        }
+        throw error;
+      }
     }));
+    return runs.filter((run): run is { id: string; file: string; run: unknown } => run !== undefined);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return [];

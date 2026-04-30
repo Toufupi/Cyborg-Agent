@@ -26,6 +26,7 @@ import { smokeModel } from "../model-client.js";
 import { readAuditEvents } from "../audit.js";
 import { loadSchedulerState, runDueTasks, watchDueTasks } from "../scheduler.js";
 import { addMemory, listMemories, searchMemories, type MemoryType } from "../memory.js";
+import { summarizeUsage } from "../usage.js";
 
 const program = new Command();
 
@@ -554,6 +555,14 @@ audit.command("list")
     events.forEach((event) => {
       console.log(`${event.time}\t${event.type}\t${event.decision ?? ""}\t${event.subject ?? ""}`);
     });
+  });
+
+program.command("usage")
+  .option("--prefix <prefix>", "Run id prefix to summarize", "agent")
+  .description("Summarize model token usage from saved agent runs.")
+  .action(async (options: { prefix: string }) => {
+    const usage = await summarizeUsage(process.cwd(), options.prefix);
+    console.log(JSON.stringify({ ok: true, usage }, null, 2));
   });
 
 const memory = program.command("memory")

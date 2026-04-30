@@ -24,6 +24,20 @@ export function StatusBar({ smallModel, mode }: { smallModel: string; mode: stri
   );
 }
 
+export function Overview({ stats }: { stats: Array<{ label: string; value: string | number; color?: string }> }) {
+  return (
+    <Box flexDirection="column" borderStyle="single" borderColor="cyan" paddingX={1} marginBottom={1}>
+      <Text bold color="cyan">Runtime overview</Text>
+      {stats.map((item) => (
+        <Text key={item.label}>
+          <Text color={item.color ?? "white"}>{item.value}</Text>
+          <Text color="gray"> {item.label}</Text>
+        </Text>
+      ))}
+    </Box>
+  );
+}
+
 export function ToolList({ tools }: { tools: Array<{ registration: ToolRegistration }> }) {
   return (
     <Box flexDirection="column">
@@ -31,8 +45,7 @@ export function ToolList({ tools }: { tools: Array<{ registration: ToolRegistrat
       {tools.length === 0 ? <Text color="gray">No tools registered.</Text> : null}
       {tools.map(({ registration }) => (
         <Box key={registration.name} flexDirection="column" marginTop={1}>
-          <Text color="green">{logSymbols.success}</Text>
-          <Text> {registration.name} <Text color="gray">({registration.runtime?.type ?? "runtime?"})</Text></Text>
+          <Text color="green">{logSymbols.success} {registration.name} <Text color="gray">({registration.runtime?.type ?? "runtime?"})</Text></Text>
           <Text color="gray">  {registration.description ?? ""}</Text>
         </Box>
       ))}
@@ -40,9 +53,21 @@ export function ToolList({ tools }: { tools: Array<{ registration: ToolRegistrat
   );
 }
 
+export function CommandHint() {
+  return (
+    <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1} marginTop={1}>
+      <Text bold>Useful commands</Text>
+      <Text color="gray">cyborg ask "run the research progress report"</Text>
+      <Text color="gray">cyborg eval planner --live</Text>
+      <Text color="gray">cyborg task schedule --status</Text>
+      <Text color="gray">cyborg agent runs --all</Text>
+    </Box>
+  );
+}
+
 export function ToolCallCard({ title, status, stdout, stderr }: { title: string; status: "idle" | "running" | "ok" | "failed"; stdout?: string; stderr?: string }) {
   const color = status === "ok" ? "green" : status === "failed" ? "red" : status === "running" ? "yellow" : "gray";
-  const symbol = status === "ok" ? logSymbols.success : status === "failed" ? logSymbols.error : status === "running" ? "…" : "·";
+  const symbol = status === "ok" ? logSymbols.success : status === "failed" ? logSymbols.error : status === "running" ? "..." : "-";
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={color} paddingX={1} marginTop={1}>
       <Text color={color}>{symbol} {title}</Text>

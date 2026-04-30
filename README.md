@@ -130,6 +130,8 @@ npm run cyborg -- policy list
 npm run cyborg -- policy show
 npm run cyborg -- approval list
 npm run cyborg -- audit list
+npm run cyborg -- memory list
+npm run cyborg -- memory search "render a report"
 npm run cyborg -- agent list
 npm run cyborg -- agent run researcher research-progress
 npm run cyborg -- agent run researcher research-progress --worker planner
@@ -713,6 +715,18 @@ The most important distinction:
 - `runtime_error`: the data passed validation, but the script itself failed or met bad runtime data.
 
 This makes failures useful. They become feedback for the next Agent action.
+
+## State And Memory
+
+Cyborg uses a bounded ReAct loop with JSON actions, then evaluates state after each observation. The first evaluator is rule-based: it finalizes explicit `final`/`answer` steps, accepts completed tasks, continues through recoverable errors, and stops repeated non-final actions before a small model loops forever.
+
+Planner runs also write lightweight memory under `.cyborg/memory`. Memory is structured JSON, searched by goal/tool/task/tags, and only a small relevant slice is added to planner context. This keeps memory useful without turning the prompt into a giant chat history.
+
+```powershell
+npm run cyborg -- memory add --type tool_memory --title "Page render requires title" --summary "page.render should include input.title." --tool page-generator-cli --tag page
+npm run cyborg -- memory list
+npm run cyborg -- memory search "render page report" --tool page-generator-cli
+```
 
 ## Roadmap
 

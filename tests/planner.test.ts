@@ -60,7 +60,27 @@ describe("agent planner loop", () => {
       expect(result.plan.kind).toBe("run_task");
       expect(result.steps).toHaveLength(1);
       expect(run.events.some((event) => event.type === "agent.plan")).toBe(true);
+      expect(run.events.some((event) => event.type === "agent.evaluation")).toBe(true);
       expect(modelClient.calls).toBe(1);
+    });
+  });
+
+  it("stops when the planner repeats the same non-final action", async () => {
+    await withTempWorkspace(async (root) => {
+      const modelClient = new FakeModelClient([
+        { kind: "inspect_context", reason: "look" },
+        { kind: "inspect_context", reason: "look again" },
+        { kind: "inspect_context", reason: "still looking" }
+      ]);
+
+      const result = await runAgentGoal("inspect forever", root, { modelClient, maxSteps: 4 });
+      const run = JSON.parse(await readFile(result.file, "utf8")) as {
+        events: Array<{ type: string; data?: { decision?: string } }>;
+      };
+
+      expect(result.output).toContain("state_evaluator_stop");
+      expect(run.events.some((event) => event.type === "agent.evaluation" && event.data?.decision === "stop")).toBe(true);
+      expect(modelClient.calls).toBe(3);
     });
   });
 

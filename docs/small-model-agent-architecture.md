@@ -124,6 +124,25 @@ Use layered discovery:
 4. Component/action schema: only the relevant part.
 5. Full docs: only on failure or tool creation.
 
+Memory is another layer in this strategy. Cyborg stores structured memory as small JSON records, then retrieves only relevant summaries by goal, tool, task, and tags. It should not dump entire prior conversations into the planner prompt.
+
+The state evaluator runs after each observation and produces a compact decision:
+
+```json
+{
+  "decision": "continue",
+  "reason": "step produced an observation for the next planner step",
+  "metrics": {
+    "steps": 1,
+    "errors": 0,
+    "repeated_actions": 0,
+    "artifacts": 0
+  }
+}
+```
+
+This lets Cyborg stop obvious loops without asking the model for more reasoning.
+
 This allows small models to operate with a tiny context window.
 
 ## Code Tool Definition

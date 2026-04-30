@@ -25,6 +25,7 @@ describe("cli", () => {
     expect(result.stdout).toContain("doctor");
     expect(result.stdout).toContain("tool");
     expect(result.stdout).toContain("task");
+    expect(result.stdout).toContain("memory");
   });
 
   it("prints nested help for tool calls", async () => {

@@ -25,6 +25,7 @@ import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolIn
 import { smokeModel } from "../model-client.js";
 import { readAuditEvents } from "../audit.js";
 import { loadSchedulerState, runDueTasks, watchDueTasks } from "../scheduler.js";
+import { addMemory, listMemories, searchMemories, type MemoryType } from "../memory.js";
 
 const program = new Command();
 
@@ -553,6 +554,65 @@ audit.command("list")
     events.forEach((event) => {
       console.log(`${event.time}\t${event.type}\t${event.decision ?? ""}\t${event.subject ?? ""}`);
     });
+  });
+
+const memory = program.command("memory")
+  .description("Manage lightweight persistent Cyborg memory.");
+
+memory.command("add")
+  .requiredOption("--type <type>", "Memory type: run_memory, tool_memory, procedure_memory, preference_memory, error_memory")
+  .requiredOption("--title <text>", "Short memory title")
+  .requiredOption("--summary <text>", "Memory summary")
+  .option("--tag <tag...>", "Tags")
+  .option("--tool <name>", "Related tool")
+  .option("--task <name>", "Related task")
+  .description("Add a structured memory record.")
+  .action(async (options: { type: MemoryType; title: string; summary: string; tag?: string[]; tool?: string; task?: string }) => {
+    const result = await addMemory(process.cwd(), {
+      type: options.type,
+      title: options.title,
+      summary: options.summary,
+      tags: options.tag ?? [],
+      tool: options.tool,
+      task: options.task
+    });
+    console.log(JSON.stringify({ ok: true, memory: result.memory, file: result.file }, null, 2));
+  });
+
+memory.command("list")
+  .option("--json", "Print JSON")
+  .description("List memory records.")
+  .action(async (options: { json?: boolean }) => {
+    const memories = await listMemories(process.cwd());
+    if (options.json) {
+      console.log(JSON.stringify({ ok: true, memories }, null, 2));
+      return;
+    }
+    if (memories.length === 0) {
+      console.log("No memories found.");
+      return;
+    }
+    memories.forEach(({ memory }) => {
+      console.log(`${memory.id}\t${memory.type}\t${memory.title}`);
+    });
+  });
+
+memory.command("search")
+  .argument("<query...>", "Search query")
+  .option("--tool <name>", "Related tool")
+  .option("--task <name>", "Related task")
+  .option("--tag <tag...>", "Tags")
+  .option("--limit <count>", "Maximum results", "5")
+  .description("Search relevant memory records for planner context.")
+  .action(async (queryParts: string[], options: { tool?: string; task?: string; tag?: string[]; limit: string }) => {
+    const memories = await searchMemories(process.cwd(), {
+      goal: queryParts.join(" "),
+      tool: options.tool,
+      task: options.task,
+      tags: options.tag ?? [],
+      limit: Number.parseInt(options.limit, 10)
+    });
+    console.log(JSON.stringify({ ok: true, memories }, null, 2));
   });
 
 approval.command("allow")

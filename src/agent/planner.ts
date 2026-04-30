@@ -11,8 +11,10 @@ import { prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
 import type { JsonValue } from "../types.js";
 import { OpenAICompatibleModelClient, serializeModelError, type ModelClient } from "../model-client.js";
 import { runToolBuilderSubagent } from "../agents.js";
+import { addMemory, memoryContext, searchMemories } from "../memory.js";
 import { buildToolIndex } from "./tool-context.js";
 import { runTask } from "./task-runner.js";
+import { evaluateAgentState, type AgentStepResult } from "./state-evaluator.js";
 
 const A2C2ARequestSchema = z.object({
   a2c2a: z.string().default("0.1"),
@@ -109,7 +111,7 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
   const maxSteps = options.maxSteps ?? 6;
   const config = await loadConfig(root);
   const smallModel = chooseModel(config, "default");
-  const context = await buildPlanningContext(root);
+  const context = await buildPlanningContext(root, goal);
 
   addEvent(session, "agent.goal", goal, { model: smallModel.model });
 
@@ -136,6 +138,12 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
         maxRepairAttempts,
         attempts
       });
+      const evaluation = evaluateAgentState({
+        step: stepIndex,
+        plan,
+        result: stepResult,
+        observations
+      });
       stepHistory.push({
         attempt: stepIndex,
         model: smallModel.model,
@@ -150,9 +158,20 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
         observation: toJsonValue(stepResult.observation)
       });
       addEvent(session, "agent.observation", `Step ${stepIndex} observation`, stepResult);
+      addEvent(session, "agent.evaluation", `Step ${stepIndex} evaluation: ${evaluation.decision}`, evaluation);
 
-      if (stepResult.done) {
+      if (evaluation.decision === "final") {
         output = stepResult.output;
+        break;
+      }
+      if (evaluation.decision === "stop") {
+        output = JSON.stringify({ ok: false, error: "state_evaluator_stop", evaluation }, null, 2);
+        finalPlan = {
+          kind: "final",
+          message: evaluation.reason,
+          confidence: 0,
+          reason: "state_evaluator_stop"
+        };
         break;
       }
     }
@@ -173,10 +192,18 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
   }
   addEvent(session, "agent.final", "Agent run finished.", { output });
   const saved = await saveSession(session);
+  if (output) {
+    await rememberAgentRun(root, {
+      goal,
+      output,
+      run: saved.file,
+      finalPlan
+    });
+  }
   return { session: session.id, file: saved.file, output, plan: finalPlan, attempts, steps: stepHistory };
 }
 
-async function buildPlanningContext(root: string) {
+async function buildPlanningContext(root: string, goal: string) {
   const tools = await buildToolIndex(root);
   const tasks = (await listTasks(root)).map(({ task }) => ({
     name: task.name,
@@ -184,7 +211,8 @@ async function buildPlanningContext(root: string) {
     tools: task.tools,
     steps: task.steps.map((step) => ({ name: step.name, tool: step.tool, action: step.action }))
   }));
-  return { tools, tasks };
+  const memories = memoryContext(await searchMemories(root, { goal, limit: 5 }));
+  return { tools, tasks, memories };
 }
 
 async function requestStep(
@@ -229,7 +257,7 @@ async function executeAgentStep(
     maxRepairAttempts: number;
     attempts: AgentAttempt[];
   }
-) {
+): Promise<AgentStepResult> {
   if (plan.kind === "inspect_context") {
     return {
       ok: true,
@@ -485,4 +513,27 @@ function extractErrorType(body: string) {
     return undefined;
   }
   return typeof error.type === "string" ? error.type : undefined;
+}
+
+async function rememberAgentRun(root: string, input: { goal: string; output: string; run: string; finalPlan: AgentPlan }) {
+  const ok = !input.output.includes("\"ok\": false");
+  await addMemory(root, {
+    type: "run_memory",
+    title: ok ? `Completed goal: ${input.goal.slice(0, 96)}` : `Failed goal: ${input.goal.slice(0, 96)}`,
+    summary: summarizeOutput(input.output),
+    tags: ["agent-run", ok ? "success" : "failure", input.finalPlan.kind],
+    task: input.finalPlan.kind === "run_task" ? input.finalPlan.task : undefined,
+    tool: input.finalPlan.kind === "call_tool" ? input.finalPlan.tool : undefined,
+    source_run: input.run,
+    data: {
+      goal: input.goal,
+      final_plan: input.finalPlan,
+      ok
+    }
+  });
+}
+
+function summarizeOutput(output: string) {
+  const compact = output.replace(/\s+/g, " ").trim();
+  return compact.length > 600 ? `${compact.slice(0, 597)}...` : compact;
 }

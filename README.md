@@ -630,6 +630,7 @@ See:
 - [Agent Framework Notes](docs/agent-framework-notes.md)
 - [Small-Model Agent Architecture](docs/small-model-agent-architecture.md)
 - [Agent Framework Survey](docs/framework-survey.md)
+- [Release Readiness](docs/release-readiness.md)
 
 ## Runtime Direction
 

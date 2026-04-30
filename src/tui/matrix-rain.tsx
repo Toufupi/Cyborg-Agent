@@ -3,6 +3,19 @@ import { Box, Text } from "ink";
 
 const glyphs = "01";
 const idleWord = "CYBORG";
+const idleRobot = [
+  "  11111  ",
+  " 11 1 11 ",
+  " 1101011 ",
+  " 1111111 ",
+  "  11 11  "
+];
+
+type IdleOverlay = {
+  variant: "word" | "robot";
+  rowStart: number;
+  columnStart: number;
+};
 
 export function MatrixRain({ active, width = 36, rows = 3 }: { active: boolean; width?: number; rows?: number }) {
   const [tick, setTick] = useState(0);
@@ -33,11 +46,9 @@ export function MatrixRain({ active, width = 36, rows = 3 }: { active: boolean; 
 }
 
 function buildLines(width: number, rows: number, tick: number, active: boolean) {
-  const wordRow = Math.floor(rows / 2);
-  const wordStart = Math.max(0, Math.floor((width - idleWord.length) / 2));
+  const overlay = active ? undefined : buildIdleOverlay(width, rows, tick);
   return Array.from({ length: rows }, (_, rowIndex) => buildCells(width, rowIndex, tick, active, {
-    word: active || rowIndex !== wordRow ? "" : idleWord,
-    wordStart
+    overlay
   }));
 }
 
@@ -46,14 +57,14 @@ function buildCells(
   rowIndex: number,
   tick: number,
   active: boolean,
-  idle: { word: string; wordStart: number }
+  idle: { overlay?: IdleOverlay }
 ) {
   const head = active ? (tick + rowIndex * 7) % Math.max(1, width) : -1;
   return Array.from({ length: width }, (_, index) => {
-    const wordIndex = index - idle.wordStart;
-    if (wordIndex >= 0 && wordIndex < idle.word.length) {
+    const overlayChar = idle.overlay ? getIdleOverlayChar(idle.overlay, rowIndex, index) : "";
+    if (overlayChar) {
       return {
-        char: idle.word[wordIndex] ?? "C",
+        char: overlayChar,
         color: "#00ff41",
         bold: true
       };
@@ -73,4 +84,35 @@ function buildCells(
 function seededBit(index: number, rowIndex: number, tick: number) {
   const value = (index + 1) * 1103515245 + (rowIndex + 3) * 12345 + tick * 2654435761;
   return Math.abs(value >>> 7) % 2;
+}
+
+function buildIdleOverlay(width: number, rows: number, tick: number): IdleOverlay {
+  const variant = seededBit(width, rows, tick) === 0 ? "word" : "robot";
+  const overlayWidth = variant === "word" ? idleWord.length : idleRobot[0]?.length ?? 0;
+  const overlayHeight = variant === "word" ? 1 : idleRobot.length;
+  const maxColumn = Math.max(0, width - overlayWidth);
+  const maxRow = Math.max(0, rows - overlayHeight);
+  return {
+    variant,
+    rowStart: maxRow === 0 ? Math.floor(maxRow / 2) : Math.abs((tick + rows * 3) % (maxRow + 1)),
+    columnStart: maxColumn === 0 ? Math.floor(maxColumn / 2) : Math.abs((tick * 3 + width) % (maxColumn + 1))
+  };
+}
+
+function getIdleOverlayChar(overlay: IdleOverlay, rowIndex: number, columnIndex: number) {
+  if (overlay.variant === "word") {
+    if (rowIndex !== overlay.rowStart) {
+      return "";
+    }
+    const wordIndex = columnIndex - overlay.columnStart;
+    return wordIndex >= 0 && wordIndex < idleWord.length ? idleWord[wordIndex] ?? "" : "";
+  }
+
+  const robotRow = rowIndex - overlay.rowStart;
+  const robotColumn = columnIndex - overlay.columnStart;
+  const line = idleRobot[robotRow];
+  if (!line || robotColumn < 0 || robotColumn >= line.length) {
+    return "";
+  }
+  return line[robotColumn] === " " ? "" : line[robotColumn] ?? "";
 }

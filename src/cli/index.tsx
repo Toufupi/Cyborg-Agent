@@ -27,6 +27,7 @@ import { readAuditEvents } from "../audit.js";
 import { loadSchedulerState, runDueTasks, watchDueTasks } from "../scheduler.js";
 import { addMemory, listMemories, searchMemories, type MemoryType } from "../memory.js";
 import { summarizeUsage } from "../usage.js";
+import { runPlannerEval } from "../evals/planner-eval.js";
 
 const program = new Command();
 
@@ -563,6 +564,24 @@ program.command("usage")
   .action(async (options: { prefix: string }) => {
     const usage = await summarizeUsage(process.cwd(), options.prefix);
     console.log(JSON.stringify({ ok: true, usage }, null, 2));
+  });
+
+const evalCommand = program.command("eval")
+  .description("Run Cyborg quality evals for planner behavior and token efficiency.");
+
+evalCommand.command("planner")
+  .option("--dir <dir>", "Planner eval case directory", "evals/planner")
+  .option("--live", "Call the configured model instead of using expected_plan fixtures.")
+  .option("--output <file>", "Write the JSON eval report to a file.")
+  .description("Evaluate planner JSON actions, target selection, hallucinations, and token usage.")
+  .action(async (options: { dir: string; live?: boolean; output?: string }) => {
+    const report = await runPlannerEval(process.cwd(), {
+      dir: options.dir,
+      live: options.live,
+      output: options.output
+    });
+    console.log(JSON.stringify({ ok: report.ok, eval: report }, null, 2));
+    process.exitCode = report.ok ? 0 : 1;
   });
 
 const memory = program.command("memory")

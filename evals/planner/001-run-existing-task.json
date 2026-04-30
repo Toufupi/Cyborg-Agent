@@ -1,0 +1,40 @@
+{
+  "schema": "cyborg.planner-eval.v0.1",
+  "name": "run-existing-recurring-task",
+  "description": "A recurring report should use the registered task instead of inventing a new workflow.",
+  "goal": "run the research progress report",
+  "context": {
+    "tasks": [
+      {
+        "name": "research-progress",
+        "goal": "Generate a compact research progress report.",
+        "tools": ["research-fetcher", "page-generator-cli"],
+        "steps": [
+          { "name": "fetch", "tool": "research-fetcher", "action": "research.fetch" },
+          { "name": "render", "tool": "page-generator-cli", "action": "page.render" }
+        ]
+      }
+    ],
+    "tools": [
+      { "name": "research-fetcher", "runtime": "node", "description": "Fetch research/news items." },
+      { "name": "page-generator-cli", "runtime": "node", "description": "Render reports and pages." }
+    ],
+    "memories": "",
+    "expected_plan": {
+      "kind": "run_task",
+      "task": "research-progress",
+      "confidence": 0.9,
+      "reason": "registered recurring report task"
+    }
+  },
+  "observations": [],
+  "expect": {
+    "kind": "run_task",
+    "task": "research-progress",
+    "forbid_premature_final": true
+  },
+  "baseline": {
+    "label": "large-context-manual-skill",
+    "prompt_tokens_estimate": 8000
+  }
+}

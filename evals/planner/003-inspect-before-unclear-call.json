@@ -1,0 +1,33 @@
+{
+  "schema": "cyborg.planner-eval.v0.1",
+  "name": "inspect-before-unclear-call",
+  "description": "When the contract is unclear, the planner should inspect the manifest before calling.",
+  "goal": "render a GitHub Pages project page for this CLI",
+  "context": {
+    "tasks": [],
+    "tools": [
+      {
+        "name": "page-generator-cli",
+        "runtime": "node",
+        "description": "Generate polished HTML pages from A2C2A JSON. The exact page.render input contract is available in the manifest."
+      }
+    ],
+    "memories": "",
+    "expected_plan": {
+      "kind": "inspect_tool",
+      "tool": "page-generator-cli",
+      "include": "manifest",
+      "reason": "need page.render input contract before building JSON"
+    }
+  },
+  "observations": [],
+  "expect": {
+    "kind": "inspect_tool",
+    "tool": "page-generator-cli",
+    "forbid_premature_final": true
+  },
+  "baseline": {
+    "label": "full-page-generator-docs",
+    "prompt_tokens_estimate": 10000
+  }
+}

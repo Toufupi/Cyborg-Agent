@@ -132,6 +132,8 @@ npm run cyborg -- approval list
 npm run cyborg -- audit list
 npm run cyborg -- memory list
 npm run cyborg -- memory search "render a report"
+npm run cyborg -- eval planner
+npm run cyborg -- eval planner --live --output .cyborg\evals\planner-live.json
 npm run cyborg -- agent list
 npm run cyborg -- agent run researcher research-progress
 npm run cyborg -- agent run researcher research-progress --worker planner
@@ -676,6 +678,27 @@ Model profiles can use either `api_key_env` or a local-only `api_key` field:
 ```
 
 `api_key_env` is preferred for shared configs. `api_key` is supported for private local configs under `.cyborg/config.json`; CLI config/model output redacts it.
+
+## Planner Evals And Token Baselines
+
+Cyborg includes planner eval fixtures under `evals/planner`.
+
+```powershell
+npm run cyborg -- eval planner
+npm run cyborg -- eval planner --live --output .cyborg\evals\planner-live.json
+```
+
+The offline mode checks fixture `expected_plan` objects and keeps the eval schema stable. `--live` calls the configured small model and reports:
+
+- JSON-valid action rate;
+- expected action kind rate;
+- tool/task/action target match rate;
+- premature final count;
+- hallucinated tool/task reference count;
+- actual prompt/completion/total tokens when the model returns usage;
+- estimated prompt tokens saved against each case's baseline.
+
+This is where Cyborg can show its core efficiency claim with data: compact tool/task context plus A2C2A JSON should replace giant prompt packs for repeatable work.
 
 ## Scheduler Direction
 

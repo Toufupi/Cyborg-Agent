@@ -1,0 +1,43 @@
+{
+  "schema": "cyborg.planner-eval.v0.1",
+  "name": "call-direct-tool",
+  "description": "A one-shot fetch should call the matching A2C2A tool directly.",
+  "goal": "fetch 3 latest papers about small model agents",
+  "context": {
+    "tasks": [],
+    "tools": [
+      {
+        "name": "research-fetcher",
+        "runtime": "node",
+        "description": "Fetch arXiv, RSS, GitHub, or sample research items.",
+        "actions": ["research.fetch"]
+      }
+    ],
+    "memories": "",
+    "expected_plan": {
+      "kind": "call_tool",
+      "tool": "research-fetcher",
+      "request": {
+        "a2c2a": "0.1",
+        "action": "research.fetch",
+        "input": {
+          "topic": "small model agents",
+          "limit": 3
+        }
+      },
+      "confidence": 0.8,
+      "reason": "tool directly matches the fetch goal"
+    }
+  },
+  "observations": [],
+  "expect": {
+    "kind": "call_tool",
+    "tool": "research-fetcher",
+    "action": "research.fetch",
+    "forbid_premature_final": true
+  },
+  "baseline": {
+    "label": "manual-web-research-agent",
+    "prompt_tokens_estimate": 12000
+  }
+}

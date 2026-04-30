@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadA2ATranscript } from "../src/a2a.js";
-import { addAgentProfile, cancelSubagentStatus, listAgentProfiles, loadAgentProfile, loadSubagentStatus, runSubagent } from "../src/agents.js";
+import { addAgentProfile, cancelSubagentStatus, listAgentProfiles, loadAgentProfile, loadSubagentStatus, runSubagent, runToolBuilderSubagent } from "../src/agents.js";
 import { addTool } from "../src/registry.js";
 import { addTask } from "../src/task.js";
 import { fakeToolRegistration, withTempWorkspace, writeJson } from "./helpers.js";
@@ -160,6 +160,26 @@ describe("agent profiles and subagents", () => {
 
       expect(status.status).toBe("cancelled");
       expect(status.error?.message).toBe("test cancel");
+    });
+  });
+
+  it("runs the built-in tool-builder subagent", async () => {
+    await withTempWorkspace(async (root) => {
+      const result = await runToolBuilderSubagent(root, {
+        name: "summary-tool",
+        description: "Summarize structured inputs.",
+        category: "text",
+        register: true
+      });
+
+      const status = await loadSubagentStatus(path.join(path.dirname(result.run), "subagent-status.json"));
+      const transcript = await loadA2ATranscript(result.a2a);
+
+      expect(result.registered?.registration.name).toBe("summary-tool");
+      expect(result.doctor.ok).toBe(true);
+      expect(status.agent).toBe("tool-builder");
+      expect(status.status).toBe("completed");
+      expect(transcript.messages.map((message) => message.type)).toEqual(["delegate", "accept", "result"]);
     });
   });
 });

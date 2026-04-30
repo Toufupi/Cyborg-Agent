@@ -245,7 +245,7 @@ Implemented v0.2 agent pieces:
 - model smoke check through `cyborg model --smoke`;
 - multi-attempt A2C2A repair loop with attempt history;
 - automatic large-model fallback when routing policy matches repeated repair failure;
-- local Node tool scaffolding through `cyborg tool create`;
+- local Node tool scaffolding through `cyborg tool create`, delegated to the built-in `tool-builder` subagent;
 - built-in `research-fetcher` A2C2A tool scaffold for research/news report pipelines;
 - subagent planner worker mode through `cyborg agent run <agent> <task> --worker planner`.
 
@@ -256,8 +256,10 @@ Implemented v0.3 runtime pieces:
 - network policy fields for allow/deny/ask host control;
 - subagent timeout, cancellation state, pid metadata, and profile concurrency limit;
 - `research-fetcher` sources: `sample`, `arxiv`, `arxiv:<query>`, `rss:<url>`, `github:<query>`, and direct RSS/Atom URLs.
-- self-improvement step `create_tool`, which creates a local Node A2C2A tool scaffold and can register it immediately;
+- self-improvement step `create_tool`, which delegates local Node A2C2A scaffolding to the built-in `tool-builder` subagent, registers the result, runs doctor, and returns the subagent run plus A2A transcript;
 - run-memory step `inspect_run`, which lets the model inspect compact run history before deciding.
+
+Tool creation is now a real subagent path instead of an inline helper. Manual `cyborg tool create ...` and model-planned `create_tool` both create an `agent-tool-builder-*` run under `.cyborg/runs`, write `subagent-status.json`, and save an `a2a.json` delegate/accept/result or error transcript. That gives Cyborg a small, testable way to grow deterministic tools while keeping the planner context tiny.
 
 Register the built-in research fetcher:
 

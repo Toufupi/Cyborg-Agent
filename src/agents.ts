@@ -15,6 +15,9 @@ import { createSession, saveSession, type CyborgSession } from "./session.js";
 import { runTask } from "./agent/task-runner.js";
 import { runAgentGoal } from "./agent/planner.js";
 import { assertPolicyDecision, checkTask, checkTool, loadPolicy } from "./policy.js";
+import { createNodeTool, type CreateNodeToolOptions } from "./tool-creator.js";
+import { addTool } from "./registry.js";
+import { doctorTool } from "./tool-runtime.js";
 
 export const AgentProfileSchema = z.object({
   schema: z.literal("cyborg.agent-profile.v0.1").default("cyborg.agent-profile.v0.1"),
@@ -220,6 +223,118 @@ export async function runSubagent(profileName: string, taskName: string, root = 
     throw error;
   }
   return saveSession(session);
+}
+
+export async function runToolBuilderSubagent(root = process.cwd(), request: CreateNodeToolOptions & { register?: boolean; parentSessionId?: string }) {
+  const agent = "tool-builder";
+  const task = `create-tool:${request.name}`;
+  const session = await createSession(root, `agent-${agent}`);
+  let status = await saveSubagentStatus(session, createSubagentStatus(session, agent, task));
+  const conversationId = createA2AConversationId("a2a-tool-builder");
+  const transcript = createA2ATranscript(conversationId);
+  const parent = { agent: "cyborg", session_id: request.parentSessionId };
+  const child = { agent };
+  const delegate = appendA2AMessage(transcript, createA2AMessage({
+    conversationId,
+    from: parent,
+    to: child,
+    type: "delegate",
+    task,
+    content: `Create reusable tool '${request.name}'.`,
+    data: {
+      name: request.name,
+      description: request.description,
+      category: request.category,
+      register: request.register ?? true
+    }
+  }));
+  appendA2AMessage(transcript, createA2AMessage({
+    conversationId,
+    parentId: delegate.id,
+    from: child,
+    to: parent,
+    type: "accept",
+    task,
+    content: `Accepted tool creation request for ${request.name}.`
+  }));
+  await saveA2ATranscript(session, transcript);
+
+  await emitSessionEvent(root, session, "subagent.start", `Started ${agent}`, { request, a2a: transcriptPath(session) });
+  try {
+    status = await saveSubagentStatus(session, {
+      ...status.status,
+      status: "running",
+      updated_at: new Date().toISOString(),
+      a2a_transcript: transcriptPath(session)
+    });
+    const created = await createNodeTool(root, request);
+    const registered = request.register === false ? undefined : await addTool(created.registrationFile, root);
+    const doctor = await doctorTool(created.registration, root);
+    appendA2AMessage(transcript, createA2AMessage({
+      conversationId,
+      from: child,
+      to: parent,
+      type: "result",
+      task,
+      content: `Created tool ${request.name}.`,
+      data: {
+        toolRoot: created.toolRoot,
+        registrationFile: created.registrationFile,
+        registered: registered?.output,
+        doctor
+      }
+    }));
+    const savedTranscript = await saveA2ATranscript(session, transcript);
+    await saveSubagentStatus(session, {
+      ...status.status,
+      status: "completed",
+      updated_at: new Date().toISOString(),
+      task_run: created.registrationFile,
+      a2a_transcript: savedTranscript.file
+    });
+    await emitSessionEvent(root, session, "subagent.end", `Finished ${agent}`, {
+      toolRoot: created.toolRoot,
+      registrationFile: created.registrationFile,
+      registered: registered?.output,
+      doctor
+    });
+    const saved = await saveSession(session);
+    return { ...created, registered, doctor, run: saved.file, a2a: savedTranscript.file };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendA2AMessage(transcript, createA2AMessage({
+      conversationId,
+      from: child,
+      to: parent,
+      type: "error",
+      task,
+      content: `Failed to create tool ${request.name}.`,
+      error: {
+        code: "tool_builder_error",
+        message
+      }
+    }));
+    const savedTranscript = await saveA2ATranscript(session, transcript);
+    await saveSubagentStatus(session, {
+      ...status.status,
+      status: "failed",
+      updated_at: new Date().toISOString(),
+      a2a_transcript: savedTranscript.file,
+      error: {
+        code: "tool_builder_error",
+        message
+      }
+    });
+    await emitSessionEvent(root, session, "subagent.error", `Failed ${agent}`, {
+      error: {
+        code: "tool_builder_error",
+        message
+      },
+      a2a: savedTranscript.file
+    });
+    await saveSession(session);
+    throw error;
+  }
 }
 
 export function subagentStatusPath(session: CyborgSession) {

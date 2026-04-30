@@ -66,6 +66,29 @@ describe("cli", () => {
     });
   });
 
+  it("creates tools through the tool-builder subagent from the CLI", async () => {
+    await withTempWorkspace(async (root) => {
+      const create = await runInvocation(cyborgInvocation([
+        "tool",
+        "create",
+        "cli-built-tool",
+        "--description",
+        "Created from CLI",
+        "--category",
+        "test"
+      ]), { cwd: root });
+
+      expect(create.code).toBe(0);
+      expect(create.stdout).toContain("\"name\": \"cli-built-tool\"");
+      expect(create.stdout).toContain("agent-tool-builder");
+      expect(create.stdout).toContain("a2a.json");
+
+      const list = await runInvocation(cyborgInvocation(["tool", "list", "--json"]), { cwd: root });
+      expect(list.code).toBe(0);
+      expect(list.stdout).toContain("\"name\": \"cli-built-tool\"");
+    });
+  });
+
   it("prints help for hook and agent commands", async () => {
     const hook = await runInvocation(cyborgInvocation(["hook", "--help"]));
     const agent = await runInvocation(cyborgInvocation(["agent", "--help"]));

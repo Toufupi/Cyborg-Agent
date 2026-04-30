@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { chooseModel } from "../model-router.js";
 import { loadConfig } from "../config.js";
-import { addTool, getTool, listTools } from "../registry.js";
+import { getTool, listTools } from "../registry.js";
 import { runInvocation } from "../runner.js";
 import { cyborgEnv } from "../runtime.js";
 import { addEvent, createSession, listRuns, saveSession } from "../session.js";
@@ -10,7 +10,7 @@ import { listTasks } from "../task.js";
 import { prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
 import type { JsonValue } from "../types.js";
 import { OpenAICompatibleModelClient, type ModelClient } from "../model-client.js";
-import { createNodeTool } from "../tool-creator.js";
+import { runToolBuilderSubagent } from "../agents.js";
 import { buildToolIndex } from "./tool-context.js";
 import { runTask } from "./task-runner.js";
 
@@ -253,23 +253,27 @@ async function executeAgentStep(
     };
   }
   if (plan.kind === "create_tool") {
-    const created = await createNodeTool(state.root, {
+    const built = await runToolBuilderSubagent(state.root, {
       name: plan.name,
       description: plan.description,
-      category: plan.category
+      category: plan.category,
+      register: plan.register,
+      parentSessionId: state.sessionId
     });
-    const registered = plan.register ? await addTool(created.registrationFile, state.root) : undefined;
     return {
       ok: true,
       done: false,
       output: "",
       observation: {
-        toolRoot: created.toolRoot,
-        registrationFile: created.registrationFile,
-        registered: registered ? {
-          name: registered.registration.name,
-          output: registered.output
-        } : null
+        toolRoot: built.toolRoot,
+        registrationFile: built.registrationFile,
+        registered: built.registered ? {
+          name: built.registered.registration.name,
+          output: built.registered.output
+        } : null,
+        doctor: toJsonValue(built.doctor),
+        run: built.run,
+        a2a: built.a2a
       } satisfies JsonValue
     };
   }

@@ -221,10 +221,16 @@ describe("agent planner loop", () => {
 
       const result = await runAgentGoal("create a paper ranking tool", root, { modelClient, maxSteps: 3 });
       const tools = await listTools(root);
+      const run = JSON.parse(await readFile(result.file, "utf8")) as {
+        events: Array<{ type: string; data?: { observation?: { run?: string; a2a?: string } } }>;
+      };
+      const createObservation = run.events.find((event) => event.type === "agent.observation" && event.data?.observation?.run);
 
       expect(result.output).toBe("Created paper-ranker.");
       expect(tools.map(({ registration }) => registration.name)).toContain("paper-ranker");
       expect(result.steps.map((step) => step.plan.kind)).toEqual(["create_tool", "inspect_context", "final"]);
+      expect(createObservation?.data?.observation?.run).toContain("agent-tool-builder");
+      expect(createObservation?.data?.observation?.a2a).toContain("a2a.json");
     });
   });
 });

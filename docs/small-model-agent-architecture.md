@@ -85,14 +85,14 @@ This is the key shift from runtime skeleton to agent behavior: Cyborg can now as
 
 The loop is multi-step. A small model can inspect a selected tool manifest before constructing the A2C2A request, then read the tool result before producing a final answer.
 
-The loop can now start self-improvement work. `create_tool` creates a local Node A2C2A tool scaffold and can register it immediately, while `inspect_run` gives the model compact access to previous run history. This is not full autonomous coding yet, but it is the first durable code-knowledge step.
+The loop can now start self-improvement work. `create_tool` delegates local Node A2C2A scaffolding to the built-in `tool-builder` subagent, registers the result when requested, runs doctor, and returns a compact observation containing the new tool path, subagent run, and A2A transcript. `inspect_run` gives the model compact access to previous run history. This is not unrestricted autonomous coding; it is the first durable code-knowledge step with lifecycle and audit evidence.
 
 Implemented v0.2 additions:
 
 - `cyborg model --smoke` verifies the selected OpenAI-compatible endpoint can return JSON.
 - Repair attempts are recorded with model name, plan, exit code, and error type.
 - Automatic fallback can route later repair attempts to the large model when `max_retries_exceeded` is configured.
-- `cyborg tool create <name>` creates a local Node A2C2A tool scaffold under `tools/<name>`.
+- `cyborg tool create <name>` uses the same built-in `tool-builder` subagent path as planner `create_tool`, creating a local Node A2C2A tool scaffold under `tools/<name>`.
 - `research-fetcher` provides the first research/news fetch-normalize tool contract.
 - `cyborg agent run <profile> <task> --worker planner` lets a subagent run through the planner loop instead of only deterministic task execution.
 
@@ -104,6 +104,13 @@ Implemented v0.3 additions:
 - policy includes network mode and host allowlist fields.
 - guarded invocations write JSONL audit events.
 - subagent profiles include `timeout_ms` and `max_concurrency`; status files include pid and can be marked cancelled.
+
+Tool-builder subagent evidence:
+
+- run directory: `.cyborg/runs/agent-tool-builder-*`
+- lifecycle status: `subagent-status.json`
+- A2A transcript: `a2a.json` with `delegate`, `accept`, and `result` or `error`
+- planner observation: compact `toolRoot`, `registrationFile`, `doctor`, `run`, and `a2a`
 
 ## Context Budget Strategy
 

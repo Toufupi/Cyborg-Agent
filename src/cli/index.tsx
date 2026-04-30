@@ -16,14 +16,13 @@ import { buildToolIndex } from "../agent/tool-context.js";
 import { listRuns } from "../session.js";
 import { startAgentShell } from "../agent/shell.js";
 import { addHook, listHooks } from "../hooks.js";
-import { addAgentProfile, cancelSubagentStatus, listAgentProfiles, loadSubagentStatus, runSubagent } from "../agents.js";
+import { addAgentProfile, cancelSubagentStatus, listAgentProfiles, loadSubagentStatus, runSubagent, runToolBuilderSubagent } from "../agents.js";
 import { loadA2ATranscript } from "../a2a.js";
 import { addPolicy, listPolicies, loadPolicy } from "../policy.js";
 import { listApprovals, resolveApproval } from "../approvals.js";
 import { doctorCyborg } from "../doctor.js";
 import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
 import { smokeModel } from "../model-client.js";
-import { createNodeTool } from "../tool-creator.js";
 import { readAuditEvents } from "../audit.js";
 import { runDueTasks, watchDueTasks } from "../scheduler.js";
 
@@ -148,12 +147,19 @@ tool.command("create")
   .argument("<name>", "New semantic tool name")
   .option("--description <text>", "Short tool description")
   .option("--category <name>", "Capability category", "generated")
-  .description("Create a local Node A2C2A tool scaffold under tools/<name>.")
-  .action(async (name: string, options: { description?: string; category: string }) => {
-    const result = await createNodeTool(process.cwd(), {
+  .option("--no-register", "Create files but do not register the tool.")
+  .description("Create a local Node A2C2A tool through the built-in tool-builder subagent.")
+  .addHelpText("after", `
+
+Examples:
+  $ cyborg tool create paper-ranker --description "Rank research papers" --category research
+  $ cyborg tool create draft-tool --no-register`)
+  .action(async (name: string, options: { description?: string; category: string; register?: boolean }) => {
+    const result = await runToolBuilderSubagent(process.cwd(), {
       name,
       description: options.description,
-      category: options.category
+      category: options.category,
+      register: options.register
     });
     console.log(JSON.stringify({ ok: true, tool: result }, null, 2));
   });

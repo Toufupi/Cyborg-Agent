@@ -11,16 +11,19 @@ import { chooseModel, type ModelRouteReason } from "../model-router.js";
 import { listPolicies } from "../policy.js";
 import { getTool, listTools } from "../registry.js";
 import { runInvocation } from "../runner.js";
-import { addEvent, createSession, listRuns, saveSession, type CyborgSession } from "../session.js";
+import { addEvent, createSession, findLatestSession, listRuns, loadSession, saveSession, type CyborgSession } from "../session.js";
 import { listTasks } from "../task.js";
 import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
 import { runAgentGoal } from "./planner.js";
 import { runA2C2ARequest, runTask } from "./task-runner.js";
 import { buildToolIndex } from "./tool-context.js";
+import type { ModelClient } from "../model-client.js";
 
 export interface ShellState {
   root: string;
   session: CyborgSession;
+  resumed: boolean;
+  modelClient?: ModelClient;
 }
 
 export interface ShellResult {
@@ -36,19 +39,33 @@ const routeReasons = new Set<ModelRouteReason>([
   "repair_failed"
 ]);
 
-export async function createShellState(root = process.cwd()): Promise<ShellState> {
-  const session = await createSession(root, "chat");
-  addEvent(session, "chat.start", "Started Cyborg interactive shell.");
-  await saveSession(session);
-  return { root, session };
+export interface StartShellOptions {
+  resume?: string;
+  continueLatest?: boolean;
+  modelClient?: ModelClient;
 }
 
-export async function startAgentShell(root = process.cwd()) {
-  const state = await createShellState(root);
+export async function createShellState(root = process.cwd(), options: StartShellOptions = {}): Promise<ShellState> {
+  const resumedSession = options.resume
+    ? await loadSession(options.resume, root)
+    : options.continueLatest
+      ? await findLatestSession(root, "chat")
+      : undefined;
+  const session = resumedSession ?? await createSession(root, "chat");
+  const resumed = Boolean(resumedSession);
+  addEvent(session, resumed ? "chat.resume" : "chat.start", resumed ? "Resumed Cyborg interactive shell." : "Started Cyborg interactive shell.");
+  await saveSession(session);
+  return { root, session, resumed, modelClient: options.modelClient };
+}
+
+export async function startAgentShell(root = process.cwd(), options: StartShellOptions = {}) {
+  const state = await createShellState(root, options);
   output.write([
-    "Cyborg-Agent interactive shell",
-    "Type /help for commands, /exit to quit.",
-    `Session: ${state.session.id}`,
+    "Cyborg-Agent",
+    state.resumed ? "Resumed interactive agent shell." : "Interactive agent shell.",
+    "Natural language goes to the planner. Slash commands stay deterministic.",
+    "Type /help for commands, /session for context, /exit to quit.",
+    `Session: ${state.session.id}${state.resumed ? " (resumed)" : ""}`,
     ""
   ].join("\n"));
 
@@ -164,6 +181,8 @@ async function runSlashCommand(line: string, state: ShellState): Promise<ShellRe
       return { output: JSON.stringify({ ok: true, tools: await buildToolIndex(state.root) }, null, 2) };
     case "/doctor":
       return { output: JSON.stringify({ ok: true, doctor: await doctorCyborg(state.root) }, null, 2) };
+    case "/session":
+      return { output: JSON.stringify({ ok: true, session: shellSessionSummary(state) }, null, 2) };
     case "/model":
       return { output: await formatModel(args[0], state.root) };
     case "/run":
@@ -230,18 +249,55 @@ async function runNaturalIntent(line: string, state: ShellState): Promise<ShellR
   }
 
   return {
-    output: await runAgentIntent(line, state.root)
+    output: await runAgentIntent(line, state)
   };
 }
 
-async function runAgentIntent(line: string, root: string) {
-  const result = await runAgentGoal(line, root);
+async function runAgentIntent(line: string, state: ShellState) {
+  const conversation = compactConversationContext(state.session);
+  const result = await runAgentGoal(line, state.root, {
+    conversationContext: conversation,
+    modelClient: state.modelClient
+  });
   return [
+    "[agent]",
     result.output,
     "",
     `session: ${result.session}`,
     `run: ${result.file}`
   ].filter(Boolean).join("\n");
+}
+
+export function compactConversationContext(session: CyborgSession, limit = 12) {
+  const messages = session.events
+    .filter((event) => ["chat.user", "chat.assistant", "chat.error"].includes(event.type))
+    .slice(-limit)
+    .map((event) => ({
+      role: event.type === "chat.user" ? "user" : event.type === "chat.assistant" ? "assistant" : "system",
+      time: event.time,
+      content: compactText(event.message, 1200)
+    }));
+  return {
+    session_id: session.id,
+    recent_messages: messages,
+    message_count: session.events.filter((event) => ["chat.user", "chat.assistant", "chat.error"].includes(event.type)).length,
+    policy: {
+      mode: "compact_recent_history",
+      max_messages: limit,
+      max_chars_per_message: 1200
+    }
+  };
+}
+
+function shellSessionSummary(state: ShellState) {
+  const context = compactConversationContext(state.session);
+  return {
+    id: state.session.id,
+    run_dir: state.session.runDir,
+    resumed: state.resumed,
+    events: state.session.events.length,
+    compact_context: context
+  };
 }
 
 async function formatTools(root: string) {
@@ -476,6 +532,11 @@ function splitArgs(line: string) {
   });
 }
 
+function compactText(value: string, maxChars: number) {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length > maxChars ? `${compact.slice(0, maxChars - 3)}...` : compact;
+}
+
 function helpText() {
   return [
     "Commands:",
@@ -487,6 +548,7 @@ function helpText() {
     "  /policies                      List security policies",
     "  /approvals                     List pending approvals",
     "  /context                       Print compact tool context",
+    "  /session                       Show current chat session and compact context",
     "  /doctor                        Check config, tasks, tools, and runtimes",
     "  /model [reason]                Show selected model route",
     "  /run <task-name>               Run a task once",
@@ -503,7 +565,12 @@ function helpText() {
     "  /deny <approval-id>            Deny a pending approval",
     "  /exit                          Quit",
     "",
-    "Natural language shortcuts are intentionally small for now:",
+    "Chat persistence:",
+    "  cyborg chat --continue         Resume latest chat session",
+    "  cyborg chat --resume <run>     Resume a specific chat run",
+    "  Natural language planner calls include bounded recent chat context.",
+    "",
+    "Natural language shortcuts:",
     "  list tools",
     "  list tasks",
     "  list hooks",

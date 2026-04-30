@@ -106,6 +106,8 @@ Unified management:
 npm run cyborg -- init
 npm run cyborg
 npm run cyborg -- chat
+npm run cyborg -- chat --continue
+npm run cyborg -- chat --resume .cyborg\runs\chat-...\run.json
 npm run cyborg -- config
 npm run cyborg -- env
 npm run cyborg -- doctor
@@ -155,6 +157,15 @@ Type /help for commands, /exit to quit.
 cyborg>
 ```
 
+Resume a previous chat:
+
+```powershell
+npm run cyborg -- chat --continue
+npm run cyborg -- chat --resume .cyborg\runs\chat-...\run.json
+```
+
+Natural language turns now pass compact session context into the planner model request. Cyborg does not blindly send the entire infinite terminal history; it sends the recent chat messages with bounded length, plus compact tool/task/memory context. This is deliberate: the shell should feel continuous like Claude Code while remaining small-model friendly.
+
 First shell commands:
 
 ```text
@@ -166,6 +177,7 @@ First shell commands:
 /policies
 /approvals
 /context
+/session
 /doctor
 /model fallback
 /run research-progress
@@ -187,6 +199,7 @@ Cyborg-Agent now has a first real agent loop:
 ```text
 natural goal
   -> compact tool/task context
+  -> compact chat session context when running from the shell
   -> small-model JSON step
   -> optionally inspect tool manifest/help
   -> run registered task or call A2C2A tool

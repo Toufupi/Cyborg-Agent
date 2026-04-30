@@ -7,6 +7,16 @@ import { addHook } from "../src/hooks.js";
 import { addTool } from "../src/registry.js";
 import { addTask } from "../src/task.js";
 import { fakeToolRegistration, withTempWorkspace, writeJson } from "./helpers.js";
+import type { ModelClient, ModelMessage } from "../src/model-client.js";
+
+class CapturingModelClient implements ModelClient {
+  messages: ModelMessage[][] = [];
+
+  async completeJson(_profile: Parameters<ModelClient["completeJson"]>[0], messages: ModelMessage[]) {
+    this.messages.push(messages);
+    return { kind: "final", message: "ok", confidence: 1, reason: "test" };
+  }
+}
 
 describe("interactive shell", () => {
   it("lists tools and tasks from persistent shell state", async () => {
@@ -113,6 +123,38 @@ describe("interactive shell", () => {
       expect(help.output).toContain("/tool-doctor");
       expect(help.output).toContain("/tool-env");
       expect(approvals.output).toContain("No pending approvals");
+    });
+  });
+
+  it("resumes chat sessions and builds compact conversation context", async () => {
+    await withTempWorkspace(async (root) => {
+      const first = await createShellState(root);
+      await executeShellLine("/tools", first);
+
+      const resumed = await createShellState(root, { continueLatest: true });
+      const session = await executeShellLine("/session", resumed);
+
+      expect(resumed.session.id).toBe(first.session.id);
+      expect(session.output).toContain("\"resumed\": true");
+      expect(session.output).toContain("/tools");
+    });
+  });
+
+  it("passes compact chat history into planner model requests", async () => {
+    await withTempWorkspace(async (root) => {
+      const modelClient = new CapturingModelClient();
+      const state = await createShellState(root, { modelClient });
+      await executeShellLine("/tools", state);
+      const result = await executeShellLine("please continue from earlier", state);
+      const userPayload = JSON.parse(modelClient.messages[0]?.find((message) => message.role === "user")?.content ?? "{}") as {
+        conversation?: {
+          recent_messages?: Array<{ role: string; content: string }>;
+        };
+      };
+
+      expect(result.output).toContain("ok");
+      expect(userPayload.conversation?.recent_messages?.some((message) => message.content === "/tools")).toBe(true);
+      expect(userPayload.conversation?.recent_messages?.some((message) => message.role === "assistant" && message.content.includes("No tools registered"))).toBe(true);
     });
   });
 });

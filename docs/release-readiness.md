@@ -9,6 +9,7 @@ Cyborg-Agent is now a real lightweight agent runtime, not just a task runner.
 It can:
 
 - open a persistent CLI shell with deterministic slash commands;
+- resume the latest or a named chat session with compact conversation context;
 - accept natural language goals through a small-model JSON planner;
 - inspect compact tool/task context instead of loading giant prompt packs;
 - call registered A2C2A tools;
@@ -32,6 +33,7 @@ npm run typecheck
 npm test
 npm run build
 npm run cyborg -- doctor
+npm run cyborg -- chat --continue
 npm run cyborg -- model --smoke
 npm run cyborg -- eval planner
 npm run cyborg -- usage
@@ -62,6 +64,7 @@ npm run cyborg -- eval planner --live --output .cyborg\evals\planner-live.json
 - Python tool runtime is still a future backend.
 - The planner eval baseline token numbers are estimates until compared against real historical workflows.
 - The TUI is a lightweight overview, not yet a full Claude Code-style interface.
+- Chat resume sends bounded recent context, not unbounded full transcript history.
 
 ## Next High-Value Iterations
 

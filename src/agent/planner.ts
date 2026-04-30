@@ -84,6 +84,7 @@ export interface AgentRunOptions {
   maxRepairAttempts?: number;
   maxSteps?: number;
   modelClient?: ModelClient;
+  conversationContext?: JsonValue;
 }
 
 export interface AgentAttempt {
@@ -125,7 +126,7 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
 
   try {
     for (let stepIndex = 0; stepIndex < maxSteps; stepIndex += 1) {
-      const requested = await requestStep(modelClient, smallModel, goal, context, observations);
+      const requested = await requestStep(modelClient, smallModel, goal, context, observations, options.conversationContext);
       const plan = requested.plan;
       usage.push({
         phase: "plan",
@@ -234,11 +235,12 @@ async function requestStep(
   model: Parameters<ModelClient["completeJson"]>[0],
   goal: string,
   context: JsonValue,
-  observations: JsonValue
+  observations: JsonValue,
+  conversationContext?: JsonValue
 ) {
   const result = await completeJsonWithOptionalUsage(modelClient, model, [
     { role: "system", content: plannerSystemPrompt() },
-    { role: "user", content: JSON.stringify({ goal, context, observations }, null, 2) }
+    { role: "user", content: JSON.stringify({ goal, context, observations, conversation: conversationContext }, null, 2) }
   ]);
   return {
     plan: AgentPlanSchema.parse(result.json),

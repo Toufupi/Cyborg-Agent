@@ -23,6 +23,26 @@ export async function createSession(root = process.cwd(), prefix = "run") {
   return { id, root: path.resolve(root), runDir, events: [] } satisfies CyborgSession;
 }
 
+export async function loadSession(input: string, root = process.cwd()): Promise<CyborgSession> {
+  const file = resolveRunJson(input, root);
+  const run = JSON.parse(await readFile(file, "utf8")) as {
+    id: string;
+    root?: string;
+    events?: SessionEvent[];
+  };
+  return {
+    id: run.id,
+    root: path.resolve(run.root ?? root),
+    runDir: path.dirname(file),
+    events: run.events ?? []
+  };
+}
+
+export async function findLatestSession(root = process.cwd(), prefix = "chat") {
+  const runs = await listRuns(root, prefix);
+  return runs[0] ? loadSession(runs[0].file, root) : undefined;
+}
+
 export function addEvent(session: CyborgSession, type: string, message: string, data?: unknown) {
   session.events.push({
     time: new Date().toISOString(),
@@ -70,4 +90,12 @@ export async function listRuns(root = process.cwd(), prefix?: string) {
     }
     throw error;
   }
+}
+
+function resolveRunJson(input: string, root: string) {
+  const resolved = path.resolve(root, input);
+  if (input.endsWith("run.json")) {
+    return resolved;
+  }
+  return path.join(resolved, "run.json");
 }

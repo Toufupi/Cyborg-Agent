@@ -233,11 +233,45 @@ function ChatHeader({ active }: { active: boolean }) {
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1} marginBottom={1}>
       <Box>
-        <Text bold color="green">Cyborg-Agent</Text>
-        <Text color="gray">  </Text>
-        <MatrixRain active={active} width={32} rows={3} />
+        <BinaryRobotLogo active={active} />
+        <Box flexDirection="column" marginLeft={2}>
+          <Text bold color="green">Cyborg-Agent</Text>
+          <MatrixRain active={active} width={30} rows={4} />
+        </Box>
       </Box>
       <Text color="gray">{active ? "neural routing online" : "A2C2A-first, small-model friendly agent shell"}</Text>
+    </Box>
+  );
+}
+
+function BinaryRobotLogo({ active }: { active: boolean }) {
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    const timer = setInterval(() => setTick((value) => value + 1), 90);
+    return () => clearInterval(timer);
+  }, [active]);
+
+  const eye = active && tick % 4 === 0 ? "1" : "0";
+  const antenna = active && tick % 2 === 0 ? "1" : "0";
+  const lines = [
+    `   ${antenna}   `,
+    "  010  ",
+    ` 1${eye}0${eye}1 `,
+    " 10101 ",
+    " 0   0 "
+  ];
+
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, index) => (
+        <Text key={index} color={index <= 1 ? "#00ff41" : index <= 3 ? "#00a83b" : "#005f26"} bold={index === 2}>
+          {line}
+        </Text>
+      ))}
     </Box>
   );
 }

@@ -42,4 +42,31 @@ describe("agent state evaluator", () => {
     expect(evaluation.decision).toBe("stop");
     expect(evaluation.reason).toContain("repeated");
   });
+
+  it("stops after repeated equivalent error types", () => {
+    const evaluation = evaluateAgentState({
+      step: 2,
+      plan: {
+        kind: "call_tool",
+        tool: "page",
+        request: { a2c2a: "0.1", action: "page.render", input: {} },
+        confidence: 0.5,
+        reason: "retry"
+      },
+      result: {
+        ok: false,
+        done: false,
+        output: "bad input",
+        error_type: "input_validation_error",
+        observation: { ok: false, error: { type: "input_validation_error" } }
+      },
+      observations: [
+        { action: { kind: "call_tool", tool: "page", request: { action: "page.render" } }, observation: { ok: false, error: { type: "input_validation_error" } } },
+        { action: { kind: "inspect_tool", tool: "page" }, observation: { ok: false, error: { type: "input_validation_error" } } }
+      ]
+    });
+
+    expect(evaluation.decision).toBe("stop");
+    expect(evaluation.metrics.repeated_error_types).toBe(2);
+  });
 });

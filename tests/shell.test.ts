@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { executeShellLine, executeShellLineStream, createShellState } from "../src/agent/shell.js";
+import { classifyShellLine, executeShellLine, executeShellLineStream, createShellState } from "../src/agent/shell.js";
 import { addAgentProfile } from "../src/agents.js";
 import { addHook } from "../src/hooks.js";
 import { addTool } from "../src/registry.js";
@@ -19,6 +19,16 @@ class CapturingModelClient implements ModelClient {
 }
 
 describe("interactive shell", () => {
+  it("classifies shell lines through one shared router", () => {
+    expect(classifyShellLine("")).toEqual({ kind: "empty" });
+    expect(classifyShellLine("/tools")).toEqual({ kind: "command", command: "/tools" });
+    expect(classifyShellLine("help")).toEqual({ kind: "command", command: "/help" });
+    expect(classifyShellLine("quit")).toEqual({ kind: "exit" });
+    expect(classifyShellLine("list approvals")).toEqual({ kind: "shortcut", intent: "approvals" });
+    expect(classifyShellLine("run task daily-report")).toEqual({ kind: "shortcut", intent: "run_task" });
+    expect(classifyShellLine("please build a report")).toEqual({ kind: "planner" });
+  });
+
   it("lists tools and tasks from persistent shell state", async () => {
     await withTempWorkspace(async (root) => {
       const toolFile = await writeJson(root, "tool.json", fakeToolRegistration({
@@ -137,6 +147,7 @@ describe("interactive shell", () => {
       expect(resumed.session.id).toBe(first.session.id);
       expect(session.output).toContain("\"resumed\": true");
       expect(session.output).toContain("/tools");
+      expect(session.output).toContain("context_pressure");
     });
   });
 
@@ -149,12 +160,14 @@ describe("interactive shell", () => {
       const userPayload = JSON.parse(modelClient.messages[0]?.find((message) => message.role === "user")?.content ?? "{}") as {
         conversation?: {
           recent_messages?: Array<{ role: string; content: string }>;
+          context_pressure?: { level?: string };
         };
       };
 
       expect(result.output).toContain("ok");
       expect(userPayload.conversation?.recent_messages?.some((message) => message.content === "/tools")).toBe(true);
       expect(userPayload.conversation?.recent_messages?.some((message) => message.role === "assistant" && message.content.includes("No tools registered"))).toBe(true);
+      expect(userPayload.conversation?.context_pressure?.level).toBeDefined();
     });
   });
 

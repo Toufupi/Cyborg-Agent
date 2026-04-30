@@ -16,7 +16,9 @@ export interface StateEvaluation {
   metrics: {
     steps: number;
     errors: number;
+    consecutive_errors: number;
     repeated_actions: number;
+    repeated_error_types: number;
     artifacts: number;
   };
 }
@@ -40,6 +42,20 @@ export function evaluateAgentState(input: StateEvaluationInput): StateEvaluation
     };
   }
   if (!input.result.ok) {
+    if (metrics.consecutive_errors >= 3) {
+      return {
+        decision: "stop",
+        reason: "agent hit too many consecutive errors without progress",
+        metrics
+      };
+    }
+    if (metrics.repeated_error_types >= 2) {
+      return {
+        decision: "stop",
+        reason: "agent repeated the same error type too many times",
+        metrics
+      };
+    }
     return {
       decision: "continue",
       reason: "step failed but repair or another planner step may still recover",
@@ -50,6 +66,13 @@ export function evaluateAgentState(input: StateEvaluationInput): StateEvaluation
     return {
       decision: "stop",
       reason: "planner repeated the same action too many times",
+      metrics
+    };
+  }
+  if (metrics.steps >= 5 && metrics.artifacts === 0 && input.plan.kind === "inspect_context") {
+    return {
+      decision: "stop",
+      reason: "agent inspected context repeatedly without producing progress",
       metrics
     };
   }
@@ -64,9 +87,31 @@ function collectMetrics(input: StateEvaluationInput): StateEvaluation["metrics"]
   return {
     steps: input.step + 1,
     errors: input.observations.filter(hasErrorObservation).length + (input.result.ok ? 0 : 1),
+    consecutive_errors: countConsecutiveErrors(input),
     repeated_actions: countRepeatedActions(input.plan, input.observations),
+    repeated_error_types: countRepeatedErrorTypes(input),
     artifacts: input.observations.filter(hasArtifactObservation).length + (hasArtifactObservation(input.result.observation) ? 1 : 0)
   };
+}
+
+function countConsecutiveErrors(input: StateEvaluationInput) {
+  const observations = [...input.observations.map((observation) => getObservationPayload(observation)), input.result.observation];
+  let count = 0;
+  for (let index = observations.length - 1; index >= 0; index -= 1) {
+    if (!hasErrorObservation(observations[index] as JsonValue)) {
+      break;
+    }
+    count += 1;
+  }
+  return count;
+}
+
+function countRepeatedErrorTypes(input: StateEvaluationInput) {
+  const current = extractErrorType(input.result.observation) ?? input.result.error_type;
+  if (!current) {
+    return 0;
+  }
+  return input.observations.filter((observation) => extractErrorType(getObservationPayload(observation)) === current).length;
 }
 
 function countRepeatedActions(plan: AgentStep, observations: JsonValue[]) {
@@ -99,6 +144,34 @@ function hasErrorObservation(value: JsonValue): boolean {
     return true;
   }
   return Object.values(value).some((item) => isJsonValue(item) && hasErrorObservation(item));
+}
+
+function extractErrorType(value: unknown): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  if (typeof value.error_type === "string") {
+    return value.error_type;
+  }
+  if (isRecord(value.error) && typeof value.error.type === "string") {
+    return value.error.type;
+  }
+  for (const item of Object.values(value)) {
+    if (isJsonValue(item)) {
+      const nested = extractErrorType(item);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+  return undefined;
+}
+
+function getObservationPayload(value: JsonValue): JsonValue {
+  if (isRecord(value) && isJsonValue(value.observation)) {
+    return value.observation;
+  }
+  return value;
 }
 
 function hasArtifactObservation(value: JsonValue): boolean {

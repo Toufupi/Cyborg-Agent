@@ -170,6 +170,27 @@ The current first pass intentionally avoids heavy features:
 
 This keeps Cyborg npm-friendly and understandable while giving it a real persistent command-line presence.
 
+## Current Follow-Up Backlog
+
+The second TUI pass covers the most important pieces from the comparison:
+
+- shared shell line classification for readline, TUI, shortcuts, and planner routing;
+- recent chat history restoration in the Ink chat;
+- pending approval card with allow-once/deny keyboard actions;
+- permission mode, context pressure, approval, deny, token, and subagent visibility in the status line;
+- rough context token pressure in `/session` and planner conversation payloads;
+- stronger state evaluator stops for repeated actions, repeated error types, and no-progress context loops.
+
+Still valuable later:
+
+- command history navigation and slash-command completion;
+- grouped/collapsible planner step rows;
+- real model token streaming, once JSON repair stability is protected;
+- automatic memory compaction when context pressure crosses the high threshold;
+- explicit plan/read-only mode UI and approval flow;
+- richer permission cards per scope, especially shell command/network/file write;
+- session picker when `cyborg chat --resume` is called without a path.
+
 ## What Not To Borrow Yet
 
 - Full virtualized scrollback.

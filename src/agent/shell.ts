@@ -5,6 +5,7 @@ import { loadA2ATranscript } from "../a2a.js";
 import { listApprovals, resolveApproval } from "../approvals.js";
 import { listAgentProfiles, listSubagentRuns, loadSubagentStatus, runSubagent } from "../agents.js";
 import { loadConfig } from "../config.js";
+import { contextPressureJson, estimateSessionContextPressure } from "../context-budget.js";
 import { listHooks } from "../hooks.js";
 import { doctorCyborg } from "../doctor.js";
 import { chooseModel, type ModelRouteReason } from "../model-router.js";
@@ -37,6 +38,13 @@ export type ShellStreamEvent =
   | { type: "shell.agent.event"; event: AgentRunEvent }
   | { type: "shell.agent.result"; output: string; session: string; file: string }
   | { type: "shell.error"; output: string };
+
+export type ShellLineClassification =
+  | { kind: "empty" }
+  | { kind: "exit" }
+  | { kind: "command"; command: string }
+  | { kind: "shortcut"; intent: "tools" | "tasks" | "hooks" | "agents" | "policies" | "approvals" | "context" | "history" | "run_task" }
+  | { kind: "planner" };
 
 const routeReasons = new Set<ModelRouteReason>([
   "default",
@@ -168,15 +176,16 @@ export async function executeShellLine(line: string, state: ShellState): Promise
 }
 
 async function dispatchLine(line: string, state: ShellState): Promise<ShellResult> {
-  if (line === "/exit" || line === "/quit" || line === "exit" || line === "quit") {
+  const classification = classifyShellLine(line);
+  if (classification.kind === "exit") {
     return { output: "Bye. Session saved.", exit: true };
   }
 
-  if (line === "/help" || line === "help" || line === "?") {
+  if (classification.kind === "command" && classification.command === "/help") {
     return { output: helpText() };
   }
 
-  if (line.startsWith("/")) {
+  if (classification.kind === "command") {
     return runSlashCommand(line, state);
   }
 
@@ -193,7 +202,7 @@ export async function* executeShellLineStream(line: string, state: ShellState): 
   yield { type: "shell.user", input: trimmed };
 
   try {
-    if (!isPlannerLine(trimmed)) {
+    if (classifyShellLine(trimmed).kind !== "planner") {
       const result = await dispatchLine(trimmed, state);
       addEvent(state.session, "chat.assistant", result.output, { exit: result.exit ?? false });
       await saveSession(state.session);
@@ -233,23 +242,41 @@ export async function* executeShellLineStream(line: string, state: ShellState): 
   }
 }
 
-function isPlannerLine(line: string) {
-  if (line.startsWith("/")) {
-    return false;
+export function classifyShellLine(line: string): ShellLineClassification {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return { kind: "empty" };
   }
-  const lower = line.toLowerCase();
+  if (trimmed.startsWith("/")) {
+    const [command] = splitArgs(trimmed);
+    if (command === "/exit" || command === "/quit") {
+      return { kind: "exit" };
+    }
+    return { kind: "command", command: command === "?" ? "/help" : command };
+  }
+  const lower = trimmed.toLowerCase();
   if (["exit", "quit", "help", "?"].includes(lower)) {
-    return false;
+    return lower === "exit" || lower === "quit"
+      ? { kind: "exit" }
+      : { kind: "command", command: "/help" };
   }
-  if (["tools", "tasks", "hooks", "agents", "policies", "approvals"].some((name) => lower.includes(`list ${name}`) || lower.includes(`show ${name}`))) {
-    return false;
+  for (const intent of ["tools", "tasks", "hooks", "agents", "policies", "approvals"] as const) {
+    if (lower.includes(`list ${intent}`) || lower.includes(`show ${intent}`)) {
+      return { kind: "shortcut", intent };
+    }
   }
-  if (lower.includes("context") || lower.includes("history")) {
-    return false;
+  if (lower.includes("context")) {
+    return { kind: "shortcut", intent: "context" };
   }
-  const words = splitArgs(line);
+  if (lower.includes("history")) {
+    return { kind: "shortcut", intent: "history" };
+  }
+  const words = splitArgs(trimmed);
   const runIndex = words.findIndex((word) => ["run", "task"].includes(word.toLowerCase()));
-  return !(runIndex >= 0 && words[runIndex + 1]);
+  if (runIndex >= 0 && words[runIndex + 1]) {
+    return { kind: "shortcut", intent: "run_task" };
+  }
+  return { kind: "planner" };
 }
 
 async function runSlashCommand(line: string, state: ShellState): Promise<ShellResult> {
@@ -374,6 +401,7 @@ export function compactConversationContext(session: CyborgSession, limit = 12) {
     session_id: session.id,
     recent_messages: messages,
     message_count: session.events.filter((event) => ["chat.user", "chat.assistant", "chat.error"].includes(event.type)).length,
+    context_pressure: contextPressureJson(estimateSessionContextPressure(session)),
     policy: {
       mode: "compact_recent_history",
       max_messages: limit,
@@ -389,6 +417,7 @@ function shellSessionSummary(state: ShellState) {
     run_dir: state.session.runDir,
     resumed: state.resumed,
     events: state.session.events.length,
+    context_pressure: contextPressureJson(estimateSessionContextPressure(state.session)),
     compact_context: context
   };
 }

@@ -2,11 +2,14 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import logSymbols from "log-symbols";
-import { listApprovals } from "../approvals.js";
+import { listApprovals, resolveApproval, type ApprovalRequest } from "../approvals.js";
 import { loadConfig } from "../config.js";
+import { estimateSessionContextPressure, type ContextPressure } from "../context-budget.js";
 import { listSubagentRuns } from "../agents.js";
 import { summarizeAudit } from "../audit.js";
 import { summarizeUsage } from "../usage.js";
+import { loadPolicy } from "../policy.js";
+import type { SessionEvent } from "../session.js";
 import { createShellState, executeShellLineStream, type ShellState, type ShellStreamEvent, type StartShellOptions } from "../agent/shell.js";
 import type { AgentPlan, AgentRunEvent } from "../agent/planner.js";
 
@@ -27,6 +30,8 @@ interface ChatStatus {
   pendingApprovals: number;
   auditDenied: number;
   liveSubagents: number;
+  permissionMode: string;
+  contextPressure: ContextPressure;
   busy: boolean;
 }
 
@@ -45,8 +50,17 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
     pendingApprovals: 0,
     auditDenied: 0,
     liveSubagents: 0,
+    permissionMode: "workspace",
+    contextPressure: {
+      estimated_tokens: 0,
+      max_tokens: 24000,
+      used_ratio: 0,
+      level: "low",
+      should_compact: false
+    },
     busy: false
   });
+  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -56,12 +70,16 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
         return;
       }
       setState(shellState);
-      pushRow(setRows, {
-        kind: "system",
-        text: shellState.resumed ? "Resumed Cyborg chat session." : "Started Cyborg chat session.",
-        detail: "Type /help for commands, /exit to quit."
-      });
+      setRows([
+        ...rowsFromSession(shellState.session.events),
+        makeRow({
+          kind: "system",
+          text: shellState.resumed ? "Resumed Cyborg chat session." : "Started Cyborg chat session.",
+          detail: "Type /help for commands, /exit to quit."
+        })
+      ]);
       await refreshStatus(shellState, setStatus, busy);
+      await refreshApprovals(shellState, setApprovals);
     })().catch((error: unknown) => {
       pushRow(setRows, { kind: "error", text: error instanceof Error ? error.message : String(error) });
     });
@@ -75,11 +93,21 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
       return;
     }
     void refreshStatus(state, setStatus, busy);
+    void refreshApprovals(state, setApprovals);
   }, [state, busy]);
 
   useInput((_input, key) => {
     if (key.ctrl && _input === "c") {
       exit();
+    }
+    if (!state || approvals.length === 0 || busy || input.length > 0) {
+      return;
+    }
+    if (_input === "a") {
+      void decideApproval(state, approvals[0]!, "allow-once", setRows, setApprovals, setStatus);
+    }
+    if (_input === "d") {
+      void decideApproval(state, approvals[0]!, "deny", setRows, setApprovals, setStatus);
     }
   });
 
@@ -114,6 +142,7 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
       <Box flexDirection="column" minHeight={12}>
         {visibleRows.map((row) => <MessageRow key={row.id} row={row} />)}
       </Box>
+      <ApprovalPanel approvals={approvals} />
       <Box borderStyle="single" borderColor={busy ? "yellow" : "gray"} paddingX={1} marginTop={1}>
         <Text color="green">cyborg</Text>
         <Text color="gray"> {busy ? "working" : "ready"} </Text>
@@ -181,6 +210,25 @@ function ChatStatusLine({ status }: { status: ChatStatus }) {
       <Text color={status.auditDenied > 0 ? "red" : "green"}>{status.auditDenied}</Text>
       <Text color="gray"> | subagents </Text>
       <Text>{status.liveSubagents}</Text>
+      <Text color="gray"> | perm </Text>
+      <Text color={status.permissionMode === "bypass-all" ? "red" : "green"}>{status.permissionMode}</Text>
+      <Text color="gray"> | ctx </Text>
+      <Text color={pressureColor(status.contextPressure.level)}>{Math.round(status.contextPressure.used_ratio * 100)}%</Text>
+    </Box>
+  );
+}
+
+function ApprovalPanel({ approvals }: { approvals: ApprovalRequest[] }) {
+  if (approvals.length === 0) {
+    return null;
+  }
+  const approval = approvals[0]!;
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1} marginTop={1}>
+      <Text color="yellow" bold>approval required</Text>
+      <Text>{approval.scope}: {approval.subject}</Text>
+      <Text color="gray">{approval.reason}</Text>
+      <Text color="gray">press a allow once, d deny{approvals.length > 1 ? ` | ${approvals.length - 1} more pending` : ""}</Text>
     </Box>
   );
 }
@@ -240,6 +288,27 @@ function rowFromAgentEvent(event: AgentRunEvent): Omit<ChatRow, "id"> | undefine
   return undefined;
 }
 
+function rowsFromSession(events: SessionEvent[]) {
+  return events
+    .filter((event) => ["chat.user", "chat.assistant", "chat.error"].includes(event.type))
+    .slice(-12)
+    .map((event) => makeRow(rowFromSessionEvent(event)));
+}
+
+function rowFromSessionEvent(event: SessionEvent): Omit<ChatRow, "id"> {
+  if (event.type === "chat.user") {
+    return { kind: "user", text: compactOutput(event.message) };
+  }
+  if (event.type === "chat.error") {
+    return { kind: "error", text: compactOutput(event.message) };
+  }
+  return {
+    kind: event.message.startsWith("[agent]") ? "assistant" : "command",
+    text: firstLine(event.message.replace(/^\[agent]\s*/, "")),
+    detail: restLines(event.message)
+  };
+}
+
 function describePlan(plan: AgentPlan) {
   if (plan.kind === "call_tool") {
     return `call ${plan.tool}:${plan.request.action}`;
@@ -257,16 +326,21 @@ function describePlan(plan: AgentPlan) {
 }
 
 function pushRow(setRows: React.Dispatch<React.SetStateAction<ChatRow[]>>, row: Omit<ChatRow, "id">) {
-  setRows((current) => [...current, { ...row, id: `${Date.now()}-${current.length}` }]);
+  setRows((current) => [...current, makeRow(row, current.length)]);
+}
+
+function makeRow(row: Omit<ChatRow, "id">, index = 0): ChatRow {
+  return { ...row, id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}` };
 }
 
 async function refreshStatus(state: ShellState, setStatus: React.Dispatch<React.SetStateAction<ChatStatus>>, busy: boolean) {
-  const [config, usage, approvals, audit, subagents] = await Promise.all([
+  const [config, usage, approvals, audit, subagents, policy] = await Promise.all([
     loadConfig(state.root),
     summarizeUsage(state.root),
     listApprovals(state.root, "pending"),
     summarizeAudit(state.root),
-    listSubagentRuns(state.root)
+    listSubagentRuns(state.root),
+    loadPolicy("default", state.root)
   ]);
   setStatus({
     session: state.session.id,
@@ -278,8 +352,32 @@ async function refreshStatus(state: ShellState, setStatus: React.Dispatch<React.
     pendingApprovals: approvals.length,
     auditDenied: audit.denied,
     liveSubagents: subagents.filter((run) => run.live).length,
+    permissionMode: policy.security.mode,
+    contextPressure: estimateSessionContextPressure(state.session),
     busy
   });
+}
+
+async function refreshApprovals(state: ShellState, setApprovals: React.Dispatch<React.SetStateAction<ApprovalRequest[]>>) {
+  setApprovals((await listApprovals(state.root, "pending")).map(({ approval }) => approval));
+}
+
+async function decideApproval(
+  state: ShellState,
+  approval: ApprovalRequest,
+  decision: "allow-once" | "deny",
+  setRows: React.Dispatch<React.SetStateAction<ChatRow[]>>,
+  setApprovals: React.Dispatch<React.SetStateAction<ApprovalRequest[]>>,
+  setStatus: React.Dispatch<React.SetStateAction<ChatStatus>>
+) {
+  await resolveApproval(state.root, approval.id, decision);
+  pushRow(setRows, {
+    kind: decision === "allow-once" ? "system" : "error",
+    text: `${decision === "allow-once" ? "allowed" : "denied"} ${approval.id}`,
+    detail: `${approval.scope}: ${approval.subject}`
+  });
+  await refreshApprovals(state, setApprovals);
+  await refreshStatus(state, setStatus, false);
 }
 
 function shortId(value: string) {
@@ -298,4 +396,8 @@ function restLines(value: string) {
 function compactOutput(value: string, max = 240) {
   const compact = value.replace(/\s+/g, " ").trim();
   return compact.length > max ? `${compact.slice(0, max - 3)}...` : compact;
+}
+
+function pressureColor(level: ContextPressure["level"]) {
+  return level === "critical" ? "red" : level === "high" ? "yellow" : level === "medium" ? "cyan" : "green";
 }

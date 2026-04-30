@@ -3,16 +3,16 @@ import { Box, Text } from "ink";
 
 const glyphs = "01";
 const idleWord = "CYBORG";
-const idleRobot = [
-  "  11111  ",
-  " 11 1 11 ",
-  " 1101011 ",
-  " 1111111 ",
-  "  11 11  "
+const idleBigWord = [
+  "1111 1   1 111  111  111  1111",
+  "1    1   1 1  1 1  1 1  1 1   ",
+  "1     111  111  1  1 111  1 11",
+  "1      1   1  1 1  1 1 1  1  1",
+  "1111   1   111  111  1  1 1111"
 ];
 
 type IdleOverlay = {
-  variant: "word" | "robot";
+  variant: "word" | "big-word";
   rowStart: number;
   columnStart: number;
 };
@@ -87,9 +87,9 @@ function seededBit(index: number, rowIndex: number, tick: number) {
 }
 
 function buildIdleOverlay(width: number, rows: number, tick: number): IdleOverlay {
-  const variant = seededBit(width, rows, tick) === 0 ? "word" : "robot";
-  const overlayWidth = variant === "word" ? idleWord.length : idleRobot[0]?.length ?? 0;
-  const overlayHeight = variant === "word" ? 1 : idleRobot.length;
+  const variant = seededBit(width, rows, tick) === 0 ? "word" : "big-word";
+  const overlayWidth = variant === "word" ? idleWord.length : idleBigWord[0]?.length ?? 0;
+  const overlayHeight = variant === "word" ? 1 : idleBigWord.length;
   const maxColumn = Math.max(0, width - overlayWidth);
   const maxRow = Math.max(0, rows - overlayHeight);
   return {
@@ -108,11 +108,11 @@ function getIdleOverlayChar(overlay: IdleOverlay, rowIndex: number, columnIndex:
     return wordIndex >= 0 && wordIndex < idleWord.length ? idleWord[wordIndex] ?? "" : "";
   }
 
-  const robotRow = rowIndex - overlay.rowStart;
-  const robotColumn = columnIndex - overlay.columnStart;
-  const line = idleRobot[robotRow];
-  if (!line || robotColumn < 0 || robotColumn >= line.length) {
+  const wordRow = rowIndex - overlay.rowStart;
+  const wordColumn = columnIndex - overlay.columnStart;
+  const line = idleBigWord[wordRow];
+  if (!line || wordColumn < 0 || wordColumn >= line.length) {
     return "";
   }
-  return line[robotColumn] === " " ? "" : line[robotColumn] ?? "";
+  return line[wordColumn] === " " ? "" : line[wordColumn] ?? "";
 }

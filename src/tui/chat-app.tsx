@@ -186,13 +186,13 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
         {visibleRows.map((row) => <MessageRow key={row.id} row={row} />)}
       </Box>
       <ApprovalPanel approvals={approvals} />
+      <ChatStatusLine status={{ ...status, busy }} />
+      {completionHint ? <Text color="gray">{completionHint}</Text> : null}
       <Box borderStyle="single" borderColor={busy ? "yellow" : "gray"} paddingX={1} marginTop={1}>
         <Text color="green">cyborg</Text>
         <Text color="gray"> {busy ? "working" : "ready"} </Text>
         <TextInput value={input} onChange={setInput} onSubmit={submit} placeholder={busy ? "waiting for agent..." : "ask, /help, /tools, /exit"} />
       </Box>
-      {completionHint ? <Text color="gray">{completionHint}</Text> : null}
-      <ChatStatusLine status={{ ...status, busy }} />
     </Box>
   );
 }
@@ -235,29 +235,30 @@ function MessageRow({ row }: { row: ChatRow }) {
 }
 
 function ChatStatusLine({ status }: { status: ChatStatus }) {
+  const ctx = `${Math.round(status.contextPressure.used_ratio * 100)}%`;
   return (
     <Box borderStyle="single" borderColor="gray" paddingX={1} marginTop={1}>
-      <Text color={status.busy ? "yellow" : "green"}>{status.busy ? "running" : "idle"}</Text>
-      <Text color="gray"> | session </Text>
+      <Text color={status.busy ? "yellow" : "green"}>{status.busy ? "run" : "idle"}</Text>
+      <Text color="gray"> | ses </Text>
       <Text>{shortId(status.session)}{status.resumed ? "*" : ""}</Text>
-      <Text color="gray"> | small </Text>
-      <Text color="cyan">{status.smallModel}</Text>
-      {status.largeModel ? <Text color="gray"> | large </Text> : null}
-      {status.largeModel ? <Text color="magenta">{status.largeModel}</Text> : null}
-      <Text color="gray"> | route </Text>
+      <Text color="gray"> | s </Text>
+      <Text color="cyan">{compactModel(status.smallModel)}</Text>
+      {status.largeModel ? <Text color="gray"> | l </Text> : null}
+      {status.largeModel ? <Text color="magenta">{compactModel(status.largeModel)}</Text> : null}
+      <Text color="gray"> | </Text>
       <Text color="yellow">{status.routing}</Text>
-      <Text color="gray"> | tokens </Text>
+      <Text color="gray"> | tok </Text>
       <Text>{status.tokens}</Text>
-      <Text color="gray"> | approvals </Text>
+      <Text color="gray"> | app </Text>
       <Text color={status.pendingApprovals > 0 ? "yellow" : "green"}>{status.pendingApprovals}</Text>
-      <Text color="gray"> | denies </Text>
+      <Text color="gray"> | den </Text>
       <Text color={status.auditDenied > 0 ? "red" : "green"}>{status.auditDenied}</Text>
-      <Text color="gray"> | subagents </Text>
+      <Text color="gray"> | sub </Text>
       <Text>{status.liveSubagents}</Text>
-      <Text color="gray"> | perm </Text>
-      <Text color={status.permissionMode === "bypass-all" ? "red" : "green"}>{status.permissionMode}</Text>
+      <Text color="gray"> | </Text>
+      <Text color={status.permissionMode === "bypass-all" ? "red" : "green"}>{compactPermission(status.permissionMode)}</Text>
       <Text color="gray"> | ctx </Text>
-      <Text color={pressureColor(status.contextPressure.level)}>{Math.round(status.contextPressure.used_ratio * 100)}%</Text>
+      <Text color={pressureColor(status.contextPressure.level)}>{ctx}</Text>
     </Box>
   );
 }
@@ -540,6 +541,17 @@ function escapeRegExp(value: string) {
 
 function shortId(value: string) {
   return value.length > 12 ? value.slice(0, 12) : value;
+}
+
+function compactModel(value: string) {
+  return value
+    .replace(/^deepseek-/i, "ds-")
+    .replace(/^gpt-/i, "g-")
+    .slice(0, 18);
+}
+
+function compactPermission(value: string) {
+  return value === "bypass-all" ? "bypass" : value === "workspace" ? "ws" : value;
 }
 
 function firstLine(value: string) {

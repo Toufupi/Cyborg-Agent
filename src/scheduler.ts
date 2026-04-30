@@ -203,6 +203,10 @@ export function isDue(schedule: string, lastRunAt: string | undefined, now = new
     const ms = unit.startsWith("second") ? count * 1000 : unit.startsWith("minute") ? count * 60_000 : count * 3_600_000;
     return elapsed(lastRunAt, now) >= ms;
   }
+  const cron = parseSimpleCron(schedule);
+  if (cron) {
+    return matchesSimpleCron(cron, now) && !ranInCurrentCronMinute(lastRunAt, now);
+  }
   return false;
 }
 
@@ -211,6 +215,74 @@ function elapsed(lastRunAt: string | undefined, now: Date) {
     return Number.POSITIVE_INFINITY;
   }
   return now.getTime() - new Date(lastRunAt).getTime();
+}
+
+interface SimpleCron {
+  minute: CronField;
+  hour: CronField;
+  dayOfMonth: CronField;
+  month: CronField;
+  dayOfWeek: CronField;
+}
+
+type CronField = "*" | number[] | { every: number };
+
+function parseSimpleCron(schedule: string): SimpleCron | undefined {
+  const parts = schedule.trim().split(/\s+/);
+  if (parts.length !== 5) {
+    return undefined;
+  }
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts.map(parseCronField);
+  if (!minute || !hour || !dayOfMonth || !month || !dayOfWeek) {
+    return undefined;
+  }
+  return { minute, hour, dayOfMonth, month, dayOfWeek };
+}
+
+function parseCronField(value: string): CronField | undefined {
+  if (value === "*") {
+    return "*";
+  }
+  const every = /^\*\/(\d+)$/.exec(value);
+  if (every) {
+    const count = Number(every[1]);
+    return count > 0 ? { every: count } : undefined;
+  }
+  const values = value.split(",").map((item) => Number(item));
+  if (values.every((item) => Number.isInteger(item) && item >= 0)) {
+    return values;
+  }
+  return undefined;
+}
+
+function matchesSimpleCron(cron: SimpleCron, now: Date) {
+  return matchesCronField(cron.minute, now.getMinutes())
+    && matchesCronField(cron.hour, now.getHours())
+    && matchesCronField(cron.dayOfMonth, now.getDate())
+    && matchesCronField(cron.month, now.getMonth() + 1)
+    && matchesCronField(cron.dayOfWeek, now.getDay());
+}
+
+function matchesCronField(field: CronField, value: number) {
+  if (field === "*") {
+    return true;
+  }
+  if (Array.isArray(field)) {
+    return field.includes(value);
+  }
+  return value % field.every === 0;
+}
+
+function ranInCurrentCronMinute(lastRunAt: string | undefined, now: Date) {
+  if (!lastRunAt) {
+    return false;
+  }
+  const last = new Date(lastRunAt);
+  return last.getFullYear() === now.getFullYear()
+    && last.getMonth() === now.getMonth()
+    && last.getDate() === now.getDate()
+    && last.getHours() === now.getHours()
+    && last.getMinutes() === now.getMinutes();
 }
 
 async function readTaskRunFailure(file: string) {

@@ -12,6 +12,11 @@ describe("scheduler", () => {
     expect(isDue("@once", undefined)).toBe(true);
     expect(isDue("@once", new Date().toISOString())).toBe(false);
     expect(isDue("every 1 second", new Date(Date.now() - 2000).toISOString())).toBe(true);
+    expect(isDue("0 8 * * *", undefined, new Date("2026-04-30T08:00:00"))).toBe(true);
+    expect(isDue("0 8 * * *", undefined, new Date("2026-04-30T08:01:00"))).toBe(false);
+    expect(isDue("*/5 * * * *", undefined, new Date("2026-04-30T08:10:00"))).toBe(true);
+    expect(isDue("*/5 * * * *", undefined, new Date("2026-04-30T08:11:00"))).toBe(false);
+    expect(isDue("0 8 * * *", new Date("2026-04-30T08:00:20").toISOString(), new Date("2026-04-30T08:00:50"))).toBe(false);
   });
 
   it("runs due tasks once and records state", async () => {

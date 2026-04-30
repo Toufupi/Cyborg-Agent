@@ -56,9 +56,11 @@ Implemented v0.1 loop:
 goal
   -> compact context of tools and tasks
   -> OpenAI-compatible chat completion with JSON response_format
-  -> validated plan JSON
-  -> run_task | call_tool | answer
-  -> A2C2A tool execution
+  -> validated step JSON
+  -> inspect_context | inspect_tool | run_task | call_tool | answer | final
+  -> A2C2A tool execution or discovery command
+  -> observation appended to history
+  -> next model step
   -> structured repair attempt on A2C2A errors
   -> run history
 ```
@@ -80,6 +82,8 @@ The model-facing plan is intentionally tiny:
 ```
 
 This is the key shift from runtime skeleton to agent behavior: Cyborg can now ask a model what to do, validate that decision, execute a registered deterministic capability, and feed structured errors back for repair.
+
+The loop is multi-step. A small model can inspect a selected tool manifest before constructing the A2C2A request, then read the tool result before producing a final answer.
 
 Implemented v0.2 additions:
 

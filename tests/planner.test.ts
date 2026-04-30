@@ -56,6 +56,7 @@ describe("agent planner loop", () => {
 
       expect(result.output).toContain("\"ok\": true");
       expect(result.plan.kind).toBe("run_task");
+      expect(result.steps).toHaveLength(1);
       expect(run.events.some((event) => event.type === "agent.plan")).toBe(true);
       expect(modelClient.calls).toBe(1);
     });
@@ -99,16 +100,59 @@ describe("agent planner loop", () => {
           request: { a2c2a: "0.1", action: "page.render", input: { title: "Fixed" } },
           confidence: 0.9,
           reason: "fixed missing title"
+        },
+        {
+          kind: "final",
+          message: "Rendered after repair.",
+          confidence: 0.9,
+          reason: "tool succeeded"
         }
       ]);
 
-      const result = await runAgentGoal("render a page", root, { modelClient, maxRepairAttempts: 1 });
+      const result = await runAgentGoal("render a page", root, { modelClient, maxRepairAttempts: 1, maxSteps: 2 });
       const run = JSON.parse(await readFile(result.file, "utf8")) as { events: Array<{ type: string }> };
 
-      expect(result.output).toContain("\"ok\":true");
-      expect(result.output).toContain("\"Fixed\"");
-      expect(run.events.some((event) => event.type === "agent.repair_plan")).toBe(true);
-      expect(modelClient.calls).toBe(2);
+      expect(result.output).toContain("Rendered after repair");
+      expect(run.events.some((event) => event.type === "agent.observation")).toBe(true);
+      expect(modelClient.calls).toBe(3);
+    });
+  });
+
+  it("inspects a tool before calling it in a multi-step loop", async () => {
+    await withTempWorkspace(async (root) => {
+      const scriptPath = path.join(root, "manifest-tool.mjs");
+      await writeFile(scriptPath, [
+        "if (process.argv.includes('manifest')) { console.log(JSON.stringify({ actions: { 'page.render': {} } })); process.exit(0); }",
+        "let raw = '';",
+        "process.stdin.on('data', chunk => { raw += chunk; });",
+        "process.stdin.on('end', () => console.log(JSON.stringify({ ok: true, result: { html: 'ok' } })));"
+      ].join("\n"), "utf8");
+      const toolFile = await writeJson(root, "tool.json", fakeToolRegistration({
+        name: "manifest-tool",
+        discovery: {
+          strategy: "static",
+          manifest: { command: process.execPath, args: [scriptPath, "manifest"] },
+          a2c2a: { command: process.execPath, args: [scriptPath] }
+        }
+      }));
+      await addTool(toolFile, root);
+
+      const modelClient = new FakeModelClient([
+        { kind: "inspect_tool", tool: "manifest-tool", include: "manifest", reason: "need contract" },
+        {
+          kind: "call_tool",
+          tool: "manifest-tool",
+          request: { a2c2a: "0.1", action: "page.render", input: { title: "Fixed" } },
+          confidence: 0.9,
+          reason: "contract inspected"
+        },
+        { kind: "final", message: "Done.", confidence: 1, reason: "tool succeeded" }
+      ]);
+
+      const result = await runAgentGoal("render a page", root, { modelClient, maxSteps: 3 });
+
+      expect(result.output).toBe("Done.");
+      expect(result.steps.map((step) => step.plan.kind)).toEqual(["inspect_tool", "call_tool", "final"]);
     });
   });
 
@@ -144,7 +188,7 @@ describe("agent planner loop", () => {
         { kind: "answer", message: "Escalated and stopped.", confidence: 0.5, reason: "large model fallback" }
       ]);
 
-      const result = await runAgentGoal("try bad tool", root, { modelClient, maxRepairAttempts: 2 });
+      const result = await runAgentGoal("try bad tool", root, { modelClient, maxRepairAttempts: 2, maxSteps: 1 });
 
       expect(result.output).toContain("Escalated");
       expect(result.attempts.some((attempt) => attempt.model === "large")).toBe(true);

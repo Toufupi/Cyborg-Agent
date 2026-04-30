@@ -175,8 +175,11 @@ Cyborg-Agent now has a first real agent loop:
 ```text
 natural goal
   -> compact tool/task context
-  -> small-model JSON plan
+  -> small-model JSON step
+  -> optionally inspect tool manifest/help
   -> run registered task or call A2C2A tool
+  -> observe result
+  -> ask for the next JSON step
   -> if A2C2A returns a structured error, ask the model for a repaired JSON call
   -> save the full session under .cyborg/runs
 ```
@@ -192,7 +195,19 @@ Or type a normal sentence in the persistent shell. Slash commands stay determini
 The planner must return one small JSON object:
 
 ```json
+{ "kind": "inspect_tool", "tool": "page-generator-cli", "include": "manifest", "reason": "need action contract" }
+```
+
+or:
+
+```json
 { "kind": "run_task", "task": "research-progress", "confidence": 0.9, "reason": "registered task" }
+```
+
+or:
+
+```json
+{ "kind": "final", "message": "Done. The report was generated.", "confidence": 0.9, "reason": "tool succeeded" }
 ```
 
 or:

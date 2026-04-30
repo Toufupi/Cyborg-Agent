@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { executeShellLine, createShellState } from "../src/agent/shell.js";
+import { executeShellLine, executeShellLineStream, createShellState } from "../src/agent/shell.js";
 import { addAgentProfile } from "../src/agents.js";
 import { addHook } from "../src/hooks.js";
 import { addTool } from "../src/registry.js";
@@ -155,6 +155,25 @@ describe("interactive shell", () => {
       expect(result.output).toContain("ok");
       expect(userPayload.conversation?.recent_messages?.some((message) => message.content === "/tools")).toBe(true);
       expect(userPayload.conversation?.recent_messages?.some((message) => message.role === "assistant" && message.content.includes("No tools registered"))).toBe(true);
+    });
+  });
+
+  it("streams natural language shell input through the agent planner", async () => {
+    await withTempWorkspace(async (root) => {
+      const modelClient = new CapturingModelClient();
+      const state = await createShellState(root, { modelClient });
+      const stream = executeShellLineStream("please answer through stream", state);
+      const events = [];
+      let next = await stream.next();
+      while (!next.done) {
+        events.push(next.value.type);
+        next = await stream.next();
+      }
+
+      expect(next.value.output).toContain("[agent]");
+      expect(events).toContain("shell.user");
+      expect(events).toContain("shell.agent.event");
+      expect(events).toContain("shell.agent.result");
     });
   });
 });

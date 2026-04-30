@@ -105,13 +105,70 @@ Next:
 
 ## Suggested Implementation Order
 
-1. Add `runAgentGoalStream()` event generator.
-2. Build `src/tui/chat-app.tsx` using Ink and existing `executeShellLine()`.
-3. Make `cyborg chat` use Ink by default when TTY is available; keep readline fallback for pipes and simple terminals.
-4. Add message rows and status line.
-5. Add live tool/subagent/scheduler event rendering.
+1. Add `runAgentGoalStream()` event generator. Done in the first TUI pass.
+2. Build `src/tui/chat-app.tsx` using Ink and existing shell semantics. Done in the first TUI pass.
+3. Make `cyborg chat` use Ink by default when TTY is available; keep `--plain` and piped input fallback. Done in the first TUI pass.
+4. Add message rows and status line. First version done: user, system, command, tool, assistant, error rows plus session/model/token/approval/audit/subagent status.
+5. Add richer live tool/subagent/scheduler event rendering.
 6. Add token budget estimate and auto compact into memory.
 7. Add session chooser.
+
+## Architecture Lessons To Keep
+
+Claude Code's strongest architectural idea is the event boundary: the agent loop emits state changes, and the UI is only a renderer of those changes. Cyborg should keep that boundary because it is what lets the same core loop support:
+
+- `cyborg ask` batch execution;
+- `cyborg chat` interactive TUI;
+- scheduled task execution;
+- subagent worker execution;
+- future remote dashboards or logs.
+
+The Cyborg-specific version should remain smaller:
+
+- one structured planner step at a time;
+- A2C2A JSON as the tool-call contract;
+- compact context by default;
+- small model first, large model only on configured fallback;
+- saved run events as the source of truth.
+
+## Safety Lessons To Keep
+
+The useful pattern is not a single "safe mode"; it is a layered decision system.
+
+- `allow / ask / deny` should remain the core vocabulary for policy decisions.
+- plan mode should be read-only by default and only unlock write actions after approval.
+- bypass-all should exist because real operators need it, but it must be explicit, visible, audited, and never silently enabled by config drift.
+- workspace guard is a necessary minimum, but it is not an OS sandbox. Cyborg should describe it honestly.
+- shell commands deserve stricter checks than A2C2A tools because shell behavior expands at runtime.
+- every denial should feed back into the agent loop as a structured observation, so the small model can change strategy instead of retrying the same blocked action.
+
+Near-term Cyborg work:
+
+- render pending approval cards in the TUI;
+- add one-key allow/deny actions;
+- add a visible permission mode in the status line;
+- add denial counters per session to stop repeated unsafe attempts;
+- document the difference between workspace guard, policy approval, and future OS/container sandboxing.
+
+## TUI Lessons To Keep
+
+The TUI should communicate state, not decorate output. The important pieces are:
+
+- top identity band: product, current session, compact purpose;
+- scrollback rows with stable labels and restrained color;
+- live planner/tool rows so the user sees why the agent is still running;
+- bottom input row with clear busy/ready state;
+- status line with model, routing, tokens, approvals, audit denies, and subagents;
+- keyboard affordances that are discoverable through `/help`, not a wall of text on screen.
+
+The current first pass intentionally avoids heavy features:
+
+- no virtualized scrollback yet;
+- no vim editing mode yet;
+- no split-pane file diff yet;
+- no terminal animation library beyond Ink primitives.
+
+This keeps Cyborg npm-friendly and understandable while giving it a real persistent command-line presence.
 
 ## What Not To Borrow Yet
 

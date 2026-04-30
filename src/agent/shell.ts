@@ -14,7 +14,7 @@ import { runInvocation } from "../runner.js";
 import { addEvent, createSession, findLatestSession, listRuns, loadSession, saveSession, type CyborgSession } from "../session.js";
 import { listTasks } from "../task.js";
 import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
-import { runAgentGoal } from "./planner.js";
+import { runAgentGoal, runAgentGoalStream, type AgentRunEvent } from "./planner.js";
 import { runA2C2ARequest, runTask } from "./task-runner.js";
 import { buildToolIndex } from "./tool-context.js";
 import type { ModelClient } from "../model-client.js";
@@ -31,6 +31,13 @@ export interface ShellResult {
   exit?: boolean;
 }
 
+export type ShellStreamEvent =
+  | { type: "shell.user"; input: string }
+  | { type: "shell.command.result"; output: string; exit?: boolean }
+  | { type: "shell.agent.event"; event: AgentRunEvent }
+  | { type: "shell.agent.result"; output: string; session: string; file: string }
+  | { type: "shell.error"; output: string };
+
 const routeReasons = new Set<ModelRouteReason>([
   "default",
   "manual",
@@ -43,6 +50,7 @@ export interface StartShellOptions {
   resume?: string;
   continueLatest?: boolean;
   modelClient?: ModelClient;
+  plain?: boolean;
 }
 
 export async function createShellState(root = process.cwd(), options: StartShellOptions = {}): Promise<ShellState> {
@@ -59,6 +67,22 @@ export async function createShellState(root = process.cwd(), options: StartShell
 }
 
 export async function startAgentShell(root = process.cwd(), options: StartShellOptions = {}) {
+  if (input.isTTY && !options.plain) {
+    const [{ default: React }, { render }, { ChatApp }] = await Promise.all([
+      import("react"),
+      import("ink"),
+      import("../tui/chat-app.js")
+    ]);
+    const instance = render(React.createElement(ChatApp, {
+      root,
+      resume: options.resume,
+      continueLatest: options.continueLatest,
+      modelClient: options.modelClient
+    }));
+    await instance.waitUntilExit();
+    return;
+  }
+
   const state = await createShellState(root, options);
   output.write([
     "Cyborg-Agent",
@@ -157,6 +181,75 @@ async function dispatchLine(line: string, state: ShellState): Promise<ShellResul
   }
 
   return runNaturalIntent(line, state);
+}
+
+export async function* executeShellLineStream(line: string, state: ShellState): AsyncGenerator<ShellStreamEvent, ShellResult> {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return { output: "" };
+  }
+
+  addEvent(state.session, "chat.user", trimmed);
+  yield { type: "shell.user", input: trimmed };
+
+  try {
+    if (!isPlannerLine(trimmed)) {
+      const result = await dispatchLine(trimmed, state);
+      addEvent(state.session, "chat.assistant", result.output, { exit: result.exit ?? false });
+      await saveSession(state.session);
+      yield { type: "shell.command.result", output: result.output, exit: result.exit };
+      return result;
+    }
+
+    const conversation = compactConversationContext(state.session);
+    const stream = runAgentGoalStream(trimmed, state.root, {
+      conversationContext: conversation,
+      modelClient: state.modelClient
+    });
+    let next = await stream.next();
+    while (!next.done) {
+      yield { type: "shell.agent.event", event: next.value };
+      next = await stream.next();
+    }
+    const result = next.value;
+    const outputText = [
+      "[agent]",
+      result.output,
+      "",
+      `session: ${result.session}`,
+      `run: ${result.file}`
+    ].filter(Boolean).join("\n");
+    addEvent(state.session, "chat.assistant", outputText, { exit: false });
+    await saveSession(state.session);
+    yield { type: "shell.agent.result", output: outputText, session: result.session, file: result.file };
+    return { output: outputText };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const outputText = `Error: ${message}`;
+    addEvent(state.session, "chat.error", outputText);
+    await saveSession(state.session);
+    yield { type: "shell.error", output: outputText };
+    return { output: outputText };
+  }
+}
+
+function isPlannerLine(line: string) {
+  if (line.startsWith("/")) {
+    return false;
+  }
+  const lower = line.toLowerCase();
+  if (["exit", "quit", "help", "?"].includes(lower)) {
+    return false;
+  }
+  if (["tools", "tasks", "hooks", "agents", "policies", "approvals"].some((name) => lower.includes(`list ${name}`) || lower.includes(`show ${name}`))) {
+    return false;
+  }
+  if (lower.includes("context") || lower.includes("history")) {
+    return false;
+  }
+  const words = splitArgs(line);
+  const runIndex = words.findIndex((word) => ["run", "task"].includes(word.toLowerCase()));
+  return !(runIndex >= 0 && words[runIndex + 1]);
 }
 
 async function runSlashCommand(line: string, state: ShellState): Promise<ShellResult> {

@@ -46,11 +46,13 @@ program.command("chat")
   .alias("shell")
   .option("--resume <run>", "Resume a chat run directory or run.json file.")
   .option("--continue", "Resume the latest chat session.")
+  .option("--plain", "Use the simple readline shell instead of the Ink TUI.")
   .description("Open the persistent Cyborg-Agent interactive shell.")
-  .action(async (options: { resume?: string; continue?: boolean }) => {
+  .action(async (options: { resume?: string; continue?: boolean; plain?: boolean }) => {
     await startAgentShell(process.cwd(), {
       resume: options.resume,
-      continueLatest: options.continue
+      continueLatest: options.continue,
+      plain: options.plain
     });
   });
 

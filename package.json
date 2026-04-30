@@ -25,6 +25,7 @@
     "cli-spinners": "^3.4.0",
     "commander": "^14.0.2",
     "ink": "^7.0.1",
+    "ink-text-input": "^6.0.0",
     "log-symbols": "^7.0.1",
     "nanoid": "^5.1.9",
     "react": "^19.2.5",

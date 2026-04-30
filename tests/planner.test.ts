@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { runAgentGoal } from "../src/agent/planner.js";
+import { runAgentGoal, runAgentGoalStream } from "../src/agent/planner.js";
 import type { ModelClient } from "../src/model-client.js";
 import { addTool } from "../src/registry.js";
 import { listTools } from "../src/registry.js";
@@ -34,6 +34,28 @@ class FakeModelClient implements ModelClient {
 }
 
 describe("agent planner loop", () => {
+  it("streams planner events while preserving the final result shape", async () => {
+    await withTempWorkspace(async (root) => {
+      const modelClient = new FakeModelClient([
+        { kind: "final", message: "streamed done", confidence: 1, reason: "enough context" }
+      ], { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 });
+      const stream = runAgentGoalStream("answer directly", root, { modelClient });
+      const events = [];
+      let next = await stream.next();
+      while (!next.done) {
+        events.push(next.value.type);
+        next = await stream.next();
+      }
+
+      expect(next.value.output).toBe("streamed done");
+      expect(events).toContain("agent.start");
+      expect(events).toContain("agent.step.plan");
+      expect(events).toContain("agent.step.result");
+      expect(events).toContain("agent.usage");
+      expect(events).toContain("agent.final");
+    });
+  });
+
   it("uses a model plan to run an existing task", async () => {
     await withTempWorkspace(async (root) => {
       const scriptPath = path.join(root, "tool.mjs");

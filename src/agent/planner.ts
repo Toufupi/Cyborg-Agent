@@ -106,7 +106,17 @@ export interface AgentRunResult {
   steps: AgentAttempt[];
 }
 
-export async function runAgentGoal(goal: string, root = process.cwd(), options: AgentRunOptions = {}): Promise<AgentRunResult> {
+export type AgentRunEvent =
+  | { type: "agent.start"; session: string; goal: string; model: string }
+  | { type: "agent.step.plan"; step: number; plan: AgentPlan; model: string; usage?: ModelUsage }
+  | { type: "agent.step.result"; step: number; plan: AgentPlan; result: AgentStepResult }
+  | { type: "agent.step.evaluation"; step: number; decision: string; reason: string }
+  | { type: "agent.repair"; attempt: number; model: string; plan: AgentPlan; ok: boolean; code?: number | null; error_type?: string; usage?: ModelUsage }
+  | { type: "agent.error"; error: ReturnType<typeof serializeModelError> }
+  | { type: "agent.usage"; summary: ReturnType<typeof summarizeModelUsage> }
+  | { type: "agent.final"; result: AgentRunResult };
+
+export async function* runAgentGoalStream(goal: string, root = process.cwd(), options: AgentRunOptions = {}): AsyncGenerator<AgentRunEvent, AgentRunResult> {
   const session = await createSession(root, "agent");
   const modelClient = options.modelClient ?? new OpenAICompatibleModelClient();
   const maxRepairAttempts = options.maxRepairAttempts ?? 1;
@@ -125,6 +135,7 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
   const usage: AgentModelUsageEvent[] = [];
 
   try {
+    yield { type: "agent.start", session: session.id, goal, model: smallModel.model };
     for (let stepIndex = 0; stepIndex < maxSteps; stepIndex += 1) {
       const requested = await requestStep(modelClient, smallModel, goal, context, observations, options.conversationContext);
       const plan = requested.plan;
@@ -137,7 +148,9 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
       finalPlan = plan;
       addEvent(session, "agent.plan", `Step ${stepIndex}: ${plan.kind}`, { step: stepIndex, plan });
       addModelUsageEvent(session, usage.at(-1));
+      yield { type: "agent.step.plan", step: stepIndex, plan, model: smallModel.model, usage: requested.usage };
 
+      const repairs: AgentAttempt[] = [];
       const stepResult = await executeAgentStep(plan, {
         root,
         sessionId: session.id,
@@ -148,7 +161,10 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
         config,
         maxRepairAttempts,
         attempts,
-        usage
+        usage,
+        onRepair: (repair) => {
+          repairs.push(repair);
+        }
       });
       const evaluation = evaluateAgentState({
         step: stepIndex,
@@ -172,6 +188,20 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
       });
       addEvent(session, "agent.observation", `Step ${stepIndex} observation`, stepResult);
       addEvent(session, "agent.evaluation", `Step ${stepIndex} evaluation: ${evaluation.decision}`, evaluation);
+      for (const repair of repairs) {
+        yield {
+          type: "agent.repair",
+          attempt: repair.attempt,
+          model: repair.model,
+          plan: repair.plan,
+          ok: repair.ok,
+          code: repair.code,
+          error_type: repair.error_type,
+          usage: repair.usage
+        };
+      }
+      yield { type: "agent.step.result", step: stepIndex, plan, result: stepResult };
+      yield { type: "agent.step.evaluation", step: stepIndex, decision: evaluation.decision, reason: evaluation.reason };
 
       if (evaluation.decision === "final") {
         output = stepResult.output;
@@ -198,6 +228,7 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
     };
     output = JSON.stringify({ ok: false, error: modelError }, null, 2);
     addEvent(session, "agent.error", "Agent run failed.", { error: modelError });
+    yield { type: "agent.error", error: modelError };
   }
 
   if (!output) {
@@ -215,7 +246,19 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
       finalPlan
     });
   }
-  return { session: session.id, file: saved.file, output, plan: finalPlan, attempts, steps: stepHistory };
+  const result = { session: session.id, file: saved.file, output, plan: finalPlan, attempts, steps: stepHistory };
+  yield { type: "agent.usage", summary: usageSummary };
+  yield { type: "agent.final", result };
+  return result;
+}
+
+export async function runAgentGoal(goal: string, root = process.cwd(), options: AgentRunOptions = {}): Promise<AgentRunResult> {
+  const stream = runAgentGoalStream(goal, root, options);
+  let next = await stream.next();
+  while (!next.done) {
+    next = await stream.next();
+  }
+  return next.value;
 }
 
 async function buildPlanningContext(root: string, goal: string) {
@@ -279,6 +322,7 @@ async function executeAgentStep(
     maxRepairAttempts: number;
     attempts: AgentAttempt[];
     usage: AgentModelUsageEvent[];
+    onRepair?: (attempt: AgentAttempt) => void;
   }
 ): Promise<AgentStepResult> {
   if (plan.kind === "inspect_context") {
@@ -394,6 +438,7 @@ async function executeAgentStep(
     if (repairPlan.kind !== "call_tool") {
       const message = repairPlan.kind === "answer" || repairPlan.kind === "final" ? repairPlan.message : JSON.stringify(repairPlan);
       state.attempts.push({ attempt, model: repairModel.model, plan: repairPlan, ok: true, usage: repaired.usage });
+      state.onRepair?.(state.attempts.at(-1)!);
       return { ok: true, done: true, output: message, observation: { message } satisfies JsonValue };
     }
     lastResult = await callToolWithRequest(repairPlan.tool, repairPlan.request, state.root, state.sessionId);
@@ -407,6 +452,7 @@ async function executeAgentStep(
       error_type: extractErrorType(lastResult.body),
       usage: repaired.usage
     });
+    state.onRepair?.(state.attempts.at(-1)!);
     if (lastResult.ok) {
       return {
         ok: true,

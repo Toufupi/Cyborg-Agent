@@ -727,6 +727,8 @@ npm run cyborg -- task list
 npm run cyborg -- task run research-progress
 npm run cyborg -- task schedule --once
 npm run cyborg -- task schedule --watch --interval 60000
+npm run cyborg -- task schedule --status
+npm run cyborg -- task schedule --stop
 npm run cyborg -- task history research-progress
 ```
 

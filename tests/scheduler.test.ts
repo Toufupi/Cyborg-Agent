@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { isDue, loadSchedulerState, runDueTasks, watchDueTasks } from "../src/scheduler.js";
+import { isDue, loadSchedulerState, requestSchedulerStop, runDueTasks, schedulerStatus, watchDueTasks } from "../src/scheduler.js";
 import { addTask } from "../src/task.js";
 import { addTool } from "../src/registry.js";
 import { readAuditEvents } from "../src/audit.js";
@@ -92,6 +92,25 @@ describe("scheduler", () => {
       expect(state.daemon?.last_tick_at).toBeTruthy();
       expect(events.map((event) => event.type)).toContain("scheduler.daemon.start");
       expect(events.map((event) => event.type)).toContain("scheduler.daemon.stop");
+    });
+  });
+
+  it("stops a watcher through scheduler state", async () => {
+    await withTempWorkspace(async (root) => {
+      let ticks = 0;
+      await watchDueTasks(root, 10, undefined, async () => {
+        ticks += 1;
+        if (ticks >= 2) {
+          await requestSchedulerStop(root);
+        }
+      });
+
+      const status = await schedulerStatus(root);
+      const events = await readAuditEvents(root);
+
+      expect(status.daemon?.status).toBe("stopped");
+      expect(status.daemon?.live).toBe(false);
+      expect(events.map((event) => event.type)).toContain("scheduler.daemon.stop_requested");
     });
   });
 });

@@ -24,7 +24,7 @@ import { doctorCyborg } from "../doctor.js";
 import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
 import { smokeModel } from "../model-client.js";
 import { readAuditEvents } from "../audit.js";
-import { loadSchedulerState, runDueTasks, watchDueTasks } from "../scheduler.js";
+import { requestSchedulerStop, runDueTasks, schedulerStatus, watchDueTasks } from "../scheduler.js";
 import { addMemory, extractMemoriesFromRun, listMemories, searchMemories, type MemoryType } from "../memory.js";
 import { summarizeUsage } from "../usage.js";
 import { runPlannerEval } from "../evals/planner-eval.js";
@@ -364,12 +364,18 @@ task.command("schedule")
   .option("--once", "Run due scheduled tasks once and exit")
   .option("--watch", "Keep polling scheduled tasks")
   .option("--status", "Print scheduler daemon and task state")
+  .option("--stop", "Request a running scheduler watcher to stop")
   .option("--interval <ms>", "Watch poll interval in milliseconds", "60000")
   .description("Run due scheduled tasks from .cyborg/tasks.")
-  .action(async (options: { once?: boolean; watch?: boolean; status?: boolean; interval: string }) => {
+  .action(async (options: { once?: boolean; watch?: boolean; status?: boolean; stop?: boolean; interval: string }) => {
     if (options.status) {
-      const state = await loadSchedulerState(process.cwd());
+      const state = await schedulerStatus(process.cwd());
       console.log(JSON.stringify({ ok: true, scheduler: state }, null, 2));
+      return;
+    }
+    if (options.stop) {
+      const state = await requestSchedulerStop(process.cwd());
+      console.log(JSON.stringify({ ok: true, scheduler: state.state }, null, 2));
       return;
     }
     if (options.watch) {

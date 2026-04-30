@@ -15,13 +15,22 @@ export interface SchedulerState {
 }
 
 export interface SchedulerDaemonState {
-  status: "idle" | "watching" | "stopped" | "failed";
+  status: "idle" | "watching" | "stop-requested" | "stopped" | "failed";
   pid: number;
   interval_ms: number;
   started_at: string;
   updated_at: string;
   last_tick_at?: string;
+  stop_requested_at?: string;
   last_error?: string;
+}
+
+export interface SchedulerStatus {
+  state: SchedulerState;
+  daemon?: SchedulerDaemonState & {
+    live: boolean;
+    stale: boolean;
+  };
 }
 
 export function schedulerStatePath(root = process.cwd()) {
@@ -37,6 +46,23 @@ export async function loadSchedulerState(root = process.cwd()): Promise<Schedule
     }
     throw error;
   }
+}
+
+export async function schedulerStatus(root = process.cwd()): Promise<SchedulerStatus> {
+  const state = await loadSchedulerState(root);
+  if (!state.daemon) {
+    return { state };
+  }
+  const active = state.daemon.status === "watching" || state.daemon.status === "stop-requested";
+  const live = active && isProcessAlive(state.daemon.pid) && !isStaleDaemon(state.daemon);
+  return {
+    state,
+    daemon: {
+      ...state.daemon,
+      live,
+      stale: active && !live
+    }
+  };
 }
 
 export async function saveSchedulerState(root: string, state: SchedulerState) {
@@ -128,12 +154,16 @@ export async function watchDueTasks(root = process.cwd(), intervalMs = 60_000, s
   });
   try {
     while (!signal?.aborted) {
+      const currentState = await loadSchedulerState(root);
+      if (currentState.daemon?.status === "stop-requested") {
+        break;
+      }
       const tickAt = new Date().toISOString();
       await updateSchedulerDaemon(root, {
         status: "watching",
         pid: process.pid,
         interval_ms: intervalMs,
-        started_at: (await loadSchedulerState(root)).daemon?.started_at ?? tickAt,
+        started_at: currentState.daemon?.started_at ?? tickAt,
         updated_at: tickAt,
         last_tick_at: tickAt
       });
@@ -183,6 +213,38 @@ export async function watchDueTasks(root = process.cwd(), intervalMs = 60_000, s
 export async function updateSchedulerDaemon(root: string, daemon: SchedulerDaemonState) {
   const state = await loadSchedulerState(root);
   state.daemon = daemon;
+  return saveSchedulerState(root, state);
+}
+
+export async function requestSchedulerStop(root = process.cwd()) {
+  const state = await loadSchedulerState(root);
+  const now = new Date().toISOString();
+  const current = state.daemon;
+  if (!current) {
+    state.daemon = {
+      status: "stopped",
+      pid: process.pid,
+      interval_ms: 0,
+      started_at: now,
+      updated_at: now,
+      stop_requested_at: now
+    };
+  } else {
+    state.daemon = {
+      ...current,
+      status: current.status === "watching" ? "stop-requested" : "stopped",
+      updated_at: now,
+      stop_requested_at: now
+    };
+  }
+  await appendAuditEvent(root, {
+    type: "scheduler.daemon.stop_requested",
+    actor: "scheduler",
+    decision: "stop-requested",
+    details: {
+      pid: state.daemon.pid
+    }
+  });
   return saveSchedulerState(root, state);
 }
 
@@ -305,4 +367,18 @@ function sleep(ms: number, signal?: AbortSignal) {
       resolve();
     }, { once: true });
   });
+}
+
+function isStaleDaemon(daemon: SchedulerDaemonState) {
+  const timestamp = daemon.last_tick_at ?? daemon.updated_at;
+  return Date.now() - new Date(timestamp).getTime() > Math.max(daemon.interval_ms * 3, 5 * 60_000);
+}
+
+function isProcessAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -241,14 +241,14 @@ Cyborg-Agent should support two model profiles:
 {
   "models": {
     "small": {
-      "base_url": "http://localhost:11434/v1",
-      "api_key_env": "CYBORG_SMALL_MODEL_KEY",
-      "model": "small-model-name"
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "model": "deepseek-v4-flash"
     },
     "large": {
-      "base_url": "https://api.example.com/v1",
-      "api_key_env": "CYBORG_LARGE_MODEL_KEY",
-      "model": "large-model-name"
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "model": "deepseek-v4-pro"
     },
     "routing": {
       "mode": "auto",

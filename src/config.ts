@@ -4,6 +4,7 @@ import { z } from "zod";
 
 export const ModelProfileSchema = z.object({
   base_url: z.string().min(1),
+  api_key: z.string().min(1).optional(),
   api_key_env: z.string().min(1).optional(),
   model: z.string().min(1),
   role: z.enum(["small", "large"]).default("small")
@@ -51,9 +52,16 @@ export function defaultConfig(root = process.cwd()): CyborgConfig {
   return CyborgConfigSchema.parse({
     models: {
       small: {
-        base_url: "http://localhost:11434/v1",
-        model: "local-small",
+        base_url: "https://api.deepseek.com/v1",
+        api_key_env: "DEEPSEEK_API_KEY",
+        model: "deepseek-v4-flash",
         role: "small"
+      },
+      large: {
+        base_url: "https://api.deepseek.com/v1",
+        api_key_env: "DEEPSEEK_API_KEY",
+        model: "deepseek-v4-pro",
+        role: "large"
       },
       routing: {
         mode: "auto"

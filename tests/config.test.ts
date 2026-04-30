@@ -23,7 +23,39 @@ describe("config", () => {
 
       expect(initialized.file).toBe(configPath(root));
       expect(loaded.workspace.root).toBe(path.resolve(root));
-      expect(loaded.models.small.model).toBe("local-small");
+      expect(loaded.models.small.model).toBe("deepseek-v4-flash");
+      expect(loaded.models.large?.model).toBe("deepseek-v4-pro");
+      expect(loaded.models.small.api_key_env).toBe("DEEPSEEK_API_KEY");
+    });
+  });
+
+  it("supports direct api_key fields for local private configs", async () => {
+    await withTempWorkspace(async (root) => {
+      await mkdir(path.dirname(configPath(root)), { recursive: true });
+      await writeFile(configPath(root), JSON.stringify({
+        models: {
+          small: {
+            base_url: "https://api.deepseek.com/v1",
+            api_key: "local-secret",
+            model: "deepseek-v4-flash",
+            role: "small"
+          },
+          large: {
+            base_url: "https://api.deepseek.com/v1",
+            api_key: "local-secret",
+            model: "deepseek-v4-pro",
+            role: "large"
+          },
+          routing: {
+            mode: "auto"
+          }
+        }
+      }), "utf8");
+
+      const config = await loadConfig(root);
+
+      expect(config.models.small.api_key).toBe("local-secret");
+      expect(config.models.large?.api_key).toBe("local-secret");
     });
   });
 

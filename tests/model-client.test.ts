@@ -58,6 +58,28 @@ describe("model client helpers", () => {
     }
   });
 
+  it("prefers direct api_key over api_key_env when present", async () => {
+    const { server, url, requests } = await startFakeOpenAICompatibleServer({ ok: true });
+    process.env.TEST_MODEL_KEY = "from-env";
+    try {
+      await new OpenAICompatibleModelClient().completeJson({
+        base_url: url,
+        api_key: "from-config",
+        api_key_env: "TEST_MODEL_KEY",
+        model: "fake-small",
+        role: "small"
+      }, [
+        { role: "system", content: "Return JSON." },
+        { role: "user", content: "hello" }
+      ]);
+
+      expect(requests[0]?.authorization).toBe("Bearer from-config");
+    } finally {
+      delete process.env.TEST_MODEL_KEY;
+      await closeServer(server);
+    }
+  });
+
   it("returns structured smoke errors when the endpoint is down", async () => {
     const result = await smokeModel({
       base_url: "http://127.0.0.1:9/v1",
@@ -75,14 +97,18 @@ describe("model client helpers", () => {
 });
 
 async function startFakeOpenAICompatibleServer(response: unknown) {
-  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const requests: Array<{ url: string; authorization?: string; body: Record<string, unknown> }> = [];
   const server = http.createServer((req, res) => {
     let raw = "";
     req.on("data", (chunk) => {
       raw += chunk.toString();
     });
     req.on("end", () => {
-      requests.push({ url: req.url ?? "", body: JSON.parse(raw) as Record<string, unknown> });
+      requests.push({
+        url: req.url ?? "",
+        authorization: req.headers.authorization,
+        body: JSON.parse(raw) as Record<string, unknown>
+      });
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({
         choices: [{

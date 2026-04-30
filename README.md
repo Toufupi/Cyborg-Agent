@@ -646,6 +646,29 @@ small model first
 
 This keeps recurring tasks cheap.
 
+Model profiles can use either `api_key_env` or a local-only `api_key` field:
+
+```json
+{
+  "models": {
+    "small": {
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "model": "deepseek-v4-flash",
+      "role": "small"
+    },
+    "large": {
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "model": "deepseek-v4-pro",
+      "role": "large"
+    }
+  }
+}
+```
+
+`api_key_env` is preferred for shared configs. `api_key` is supported for private local configs under `.cyborg/config.json`; CLI config/model output redacts it.
+
 ## Scheduler Direction
 
 Scheduled tasks should be first-class, not an afterthought.

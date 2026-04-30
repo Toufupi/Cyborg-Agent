@@ -56,7 +56,7 @@ program.command("init")
 program.command("config")
   .description("Print effective Cyborg-Agent config.")
   .action(async () => {
-    console.log(JSON.stringify(await loadConfig(), null, 2));
+    console.log(JSON.stringify(redactSecrets(await loadConfig()), null, 2));
   });
 
 program.command("model")
@@ -72,7 +72,7 @@ program.command("model")
       process.exitCode = smoke.ok ? 0 : 1;
       return;
     }
-    console.log(JSON.stringify({ ok: true, model }, null, 2));
+    console.log(JSON.stringify({ ok: true, model: redactSecrets(model) }, null, 2));
   });
 
 program.command("env")
@@ -649,4 +649,20 @@ function resolveRunArtifact(input: string, artifact: "a2a.json" | "subagent-stat
     return input.replace(/run\.json$/i, artifact);
   }
   return `${input.replace(/[\\/]$/, "")}\\${artifact}`;
+}
+
+function redactSecrets<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactSecrets(item)) as T;
+  }
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      result[key] = key.toLowerCase().includes("api_key") && typeof item === "string"
+        ? "<redacted>"
+        : redactSecrets(item);
+    }
+    return result as T;
+  }
+  return value;
 }

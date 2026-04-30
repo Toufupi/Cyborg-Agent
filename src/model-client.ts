@@ -38,11 +38,9 @@ export class OpenAICompatibleModelClient implements ModelClient {
     const headers: Record<string, string> = {
       "content-type": "application/json"
     };
-    if (profile.api_key_env) {
-      const key = process.env[profile.api_key_env];
-      if (key) {
-        headers.authorization = `Bearer ${key}`;
-      }
+    const key = profile.api_key ?? (profile.api_key_env ? process.env[profile.api_key_env] : undefined);
+    if (key) {
+      headers.authorization = `Bearer ${key}`;
     }
 
     let response: Response;

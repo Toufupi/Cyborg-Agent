@@ -136,6 +136,8 @@ npm run cyborg -- agent run researcher research-progress --worker planner
 npm run cyborg -- agent cancel .cyborg\runs\agent-researcher-...\subagent-status.json
 ```
 
+`model --smoke` expects an OpenAI-compatible `/v1/chat/completions` endpoint. The default config points at `http://localhost:11434/v1`; start a compatible local model server or edit `.cyborg/config.json` before testing planner behavior. If the endpoint is down, Cyborg returns a structured `model_connection_failed` diagnostic instead of crashing.
+
 Running `npm run cyborg` with no command opens the persistent interactive shell:
 
 ```text
@@ -659,6 +661,8 @@ npm run cyborg -- task history research-progress
 ```
 
 The first reference task is `examples/research-progress.daily.json`. It runs a lightweight scheduled-report shape and generates an HTML report through Page-Generator-CLI.
+
+This reference task is only a demo of the Cyborg pattern. Cyborg itself should stay generic: install a CLI, register its A2C2A contract, and then let Cyborg provide discovery, scheduling, policy, A2A/subagent state, repair, and audit around that CLI.
 
 ## Testing
 

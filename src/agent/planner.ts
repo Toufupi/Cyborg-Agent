@@ -9,7 +9,7 @@ import { addEvent, createSession, listRuns, saveSession } from "../session.js";
 import { listTasks } from "../task.js";
 import { prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
 import type { JsonValue } from "../types.js";
-import { OpenAICompatibleModelClient, type ModelClient } from "../model-client.js";
+import { OpenAICompatibleModelClient, serializeModelError, type ModelClient } from "../model-client.js";
 import { runToolBuilderSubagent } from "../agents.js";
 import { buildToolIndex } from "./tool-context.js";
 import { runTask } from "./task-runner.js";
@@ -119,41 +119,53 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
   const stepHistory: AgentAttempt[] = [];
   const observations: JsonValue[] = [];
 
-  for (let stepIndex = 0; stepIndex < maxSteps; stepIndex += 1) {
-    const plan = await requestStep(modelClient, smallModel, goal, context, observations);
-    finalPlan = plan;
-    addEvent(session, "agent.plan", `Step ${stepIndex}: ${plan.kind}`, { step: stepIndex, plan });
+  try {
+    for (let stepIndex = 0; stepIndex < maxSteps; stepIndex += 1) {
+      const plan = await requestStep(modelClient, smallModel, goal, context, observations);
+      finalPlan = plan;
+      addEvent(session, "agent.plan", `Step ${stepIndex}: ${plan.kind}`, { step: stepIndex, plan });
 
-    const stepResult = await executeAgentStep(plan, {
-      root,
-      sessionId: session.id,
-      context,
-      goal,
-      modelClient,
-      smallModel,
-      config,
-      maxRepairAttempts,
-      attempts
-    });
-    stepHistory.push({
-      attempt: stepIndex,
-      model: smallModel.model,
-      plan,
-      ok: stepResult.ok,
-      code: stepResult.code,
-      error_type: stepResult.error_type
-    });
-    observations.push({
-      step: stepIndex,
-      action: toJsonValue(plan),
-      observation: toJsonValue(stepResult.observation)
-    });
-    addEvent(session, "agent.observation", `Step ${stepIndex} observation`, stepResult);
+      const stepResult = await executeAgentStep(plan, {
+        root,
+        sessionId: session.id,
+        context,
+        goal,
+        modelClient,
+        smallModel,
+        config,
+        maxRepairAttempts,
+        attempts
+      });
+      stepHistory.push({
+        attempt: stepIndex,
+        model: smallModel.model,
+        plan,
+        ok: stepResult.ok,
+        code: stepResult.code,
+        error_type: stepResult.error_type
+      });
+      observations.push({
+        step: stepIndex,
+        action: toJsonValue(plan),
+        observation: toJsonValue(stepResult.observation)
+      });
+      addEvent(session, "agent.observation", `Step ${stepIndex} observation`, stepResult);
 
-    if (stepResult.done) {
-      output = stepResult.output;
-      break;
+      if (stepResult.done) {
+        output = stepResult.output;
+        break;
+      }
     }
+  } catch (error) {
+    const modelError = serializeModelError(error);
+    finalPlan = {
+      kind: "final",
+      message: `Agent stopped before completing the goal: ${modelError.message}`,
+      confidence: 0,
+      reason: modelError.type
+    };
+    output = JSON.stringify({ ok: false, error: modelError }, null, 2);
+    addEvent(session, "agent.error", "Agent run failed.", { error: modelError });
   }
 
   if (!output) {

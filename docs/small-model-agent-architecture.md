@@ -260,6 +260,14 @@ Default should be `auto`:
 3. If repair exceeds retry limit, escalate to large model.
 4. Save the successful procedure as code/config so the next run is cheaper.
 
+The model boundary is OpenAI-compatible JSON chat completion. A real planner smoke test should verify:
+
+1. `cyborg model --smoke` can reach the configured `/v1/chat/completions` endpoint.
+2. The endpoint can return JSON under `response_format: { "type": "json_object" }`.
+3. `cyborg ask "<goal>"` stores a run even when the model is unavailable.
+
+The research/news workflow is only a reference demo. The architecture goal is broader: any registered CLI with a compact A2C2A contract should become schedulable, auditable, repairable, and delegable without writing a custom skill.
+
 ## Scheduler As A First-Class Feature
 
 Scheduled tasks are not an add-on. They are the natural fit for this architecture.

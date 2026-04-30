@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
+import http from "node:http";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { runAgentGoal } from "../src/agent/planner.js";
@@ -233,4 +234,103 @@ describe("agent planner loop", () => {
       expect(createObservation?.data?.observation?.a2a).toContain("a2a.json");
     });
   });
+
+  it("saves a structured run when the model is unavailable", async () => {
+    await withTempWorkspace(async (root) => {
+      const modelClient: ModelClient = {
+        async completeJson() {
+          throw new Error("model offline");
+        }
+      };
+
+      const result = await runAgentGoal("do something", root, { modelClient });
+      const run = JSON.parse(await readFile(result.file, "utf8")) as {
+        events: Array<{ type: string; data?: { error?: { type?: string; message?: string } } }>;
+      };
+      const error = run.events.find((event) => event.type === "agent.error");
+
+      expect(result.output).toContain("\"ok\": false");
+      expect(result.plan.kind).toBe("final");
+      expect(error?.data?.error?.type).toBe("model_error");
+      expect(error?.data?.error?.message).toBe("model offline");
+    });
+  });
+
+  it("runs a planner step through an OpenAI-compatible HTTP model endpoint", async () => {
+    await withTempWorkspace(async (root) => {
+      const scriptPath = path.join(root, "tool.mjs");
+      await writeFile(scriptPath, [
+        "process.stdin.resume();",
+        "process.stdin.on('end', () => console.log(JSON.stringify({ ok: true, result: { rendered: true } })));"
+      ].join("\n"), "utf8");
+      await addTool(await writeJson(root, "tool.json", fakeToolRegistration({
+        name: "report-tool",
+        discovery: {
+          strategy: "static",
+          a2c2a: { command: process.execPath, args: [scriptPath] }
+        }
+      })), root);
+      await addTask(await writeJson(root, "task.json", {
+        name: "demo-report",
+        goal: "Render a demo report.",
+        steps: [{ name: "render", tool: "report-tool", action: "report.render", input: {} }]
+      }), root);
+      const { server, url } = await startPlannerServer({
+        kind: "run_task",
+        task: "demo-report",
+        confidence: 0.9,
+        reason: "registered task"
+      });
+      await mkdir(path.join(root, ".cyborg"), { recursive: true });
+      await writeFile(path.join(root, ".cyborg", "config.json"), JSON.stringify({
+        models: {
+          small: { base_url: url, model: "fake-small", role: "small" },
+          routing: { mode: "small_only" }
+        }
+      }), "utf8");
+
+      try {
+        const result = await runAgentGoal("run demo report", root);
+
+        expect(result.plan.kind).toBe("run_task");
+        expect(result.output).toContain("demo-report");
+      } finally {
+        await closeServer(server);
+      }
+    });
+  });
 });
+
+async function startPlannerServer(response: unknown) {
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify(response)
+          }
+        }]
+      }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Planner server did not expose a TCP address.");
+  }
+  return { server, url: `http://127.0.0.1:${address.port}/v1` };
+}
+
+function closeServer(server: http.Server) {
+  return new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}

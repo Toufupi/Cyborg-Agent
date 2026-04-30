@@ -25,7 +25,7 @@ import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolIn
 import { smokeModel } from "../model-client.js";
 import { readAuditEvents } from "../audit.js";
 import { loadSchedulerState, runDueTasks, watchDueTasks } from "../scheduler.js";
-import { addMemory, listMemories, searchMemories, type MemoryType } from "../memory.js";
+import { addMemory, extractMemoriesFromRun, listMemories, searchMemories, type MemoryType } from "../memory.js";
 import { summarizeUsage } from "../usage.js";
 import { runPlannerEval } from "../evals/planner-eval.js";
 
@@ -641,6 +641,14 @@ memory.command("search")
       limit: Number.parseInt(options.limit, 10)
     });
     console.log(JSON.stringify({ ok: true, memories }, null, 2));
+  });
+
+memory.command("extract")
+  .argument("<run>", "Path to a run directory or run.json file")
+  .description("Extract reusable error/tool memories from a saved agent run.")
+  .action(async (run: string) => {
+    const result = await extractMemoriesFromRun(process.cwd(), run);
+    console.log(JSON.stringify({ ok: true, memory: result }, null, 2));
   });
 
 approval.command("allow")

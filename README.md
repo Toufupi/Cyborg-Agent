@@ -132,6 +132,7 @@ npm run cyborg -- approval list
 npm run cyborg -- audit list
 npm run cyborg -- memory list
 npm run cyborg -- memory search "render a report"
+npm run cyborg -- memory extract .cyborg\runs\agent-...\run.json
 npm run cyborg -- eval planner
 npm run cyborg -- eval planner --live --output .cyborg\evals\planner-live.json
 npm run cyborg -- agent list
@@ -780,7 +781,10 @@ Planner runs also write lightweight memory under `.cyborg/memory`. Memory is str
 npm run cyborg -- memory add --type tool_memory --title "Page render requires title" --summary "page.render should include input.title." --tool page-generator-cli --tag page
 npm run cyborg -- memory list
 npm run cyborg -- memory search "render page report" --tool page-generator-cli
+npm run cyborg -- memory extract .cyborg\runs\agent-...\run.json
 ```
+
+`memory extract` scans saved run observations and turns structured tool failures into reusable `error_memory` and `tool_memory` records. For example, an A2C2A `input_validation_error` for `$.input.title` becomes a compact future hint instead of another long prompt paragraph.
 
 ## Roadmap
 

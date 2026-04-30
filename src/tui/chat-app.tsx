@@ -15,6 +15,7 @@ import type { AgentPlan, AgentRunEvent } from "../agent/planner.js";
 import { listTools } from "../registry.js";
 import { listTasks } from "../task.js";
 import { listAgentProfiles } from "../agents.js";
+import { MatrixRain } from "./matrix-rain.js";
 
 interface ChatAppProps extends StartShellOptions {
   root?: string;
@@ -47,6 +48,7 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number | undefined>();
   const [completionHint, setCompletionHint] = useState("");
+  const [introActive, setIntroActive] = useState(true);
   const [status, setStatus] = useState<ChatStatus>({
     session: "starting",
     resumed: false,
@@ -70,6 +72,7 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
 
   useEffect(() => {
     let active = true;
+    const introTimer = setTimeout(() => setIntroActive(false), 2600);
     void (async () => {
       const shellState = await createShellState(root, { resume, continueLatest, modelClient });
       if (!active) {
@@ -92,6 +95,7 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
     });
     return () => {
       active = false;
+      clearTimeout(introTimer);
     };
   }, [root, resume, continueLatest, modelClient]);
 
@@ -181,7 +185,7 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
 
   return (
     <Box flexDirection="column">
-      <ChatHeader />
+      <ChatHeader active={introActive || busy} />
       <Box flexDirection="column" minHeight={12}>
         {visibleRows.map((row) => <MessageRow key={row.id} row={row} />)}
       </Box>
@@ -197,11 +201,15 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
   );
 }
 
-function ChatHeader() {
+function ChatHeader({ active }: { active: boolean }) {
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1} marginBottom={1}>
-      <Text bold color="green">Cyborg-Agent</Text>
-      <Text color="gray">A2C2A-first, small-model friendly agent shell</Text>
+      <Box>
+        <Text bold color="green">Cyborg-Agent</Text>
+        <Text color="gray">  </Text>
+        <MatrixRain active={active} width={32} />
+      </Box>
+      <Text color="gray">{active ? "neural routing online" : "A2C2A-first, small-model friendly agent shell"}</Text>
     </Box>
   );
 }

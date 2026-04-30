@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, measureElement, useApp, useCursor, useInput, type DOMElement } from "ink";
 import TextInput from "ink-text-input";
 import logSymbols from "log-symbols";
+import stringWidth from "string-width";
 import { listApprovals, resolveApproval, type ApprovalRequest } from "../approvals.js";
 import { loadConfig } from "../config.js";
 import { estimateSessionContextPressure, type ContextPressure } from "../context-budget.js";
@@ -216,7 +217,7 @@ function AnchoredInputFrame({ children, input, busy }: { children: React.ReactNo
     const left = box.yogaNode?.getComputedLeft() ?? 0;
     const prompt = busy ? "cyborg working " : "cyborg ready ";
     setCursorPosition({
-      x: Math.max(0, left + prompt.length + input.length + 2),
+      x: Math.max(0, left + stringWidth(prompt + input) + 2),
       y: Math.max(0, top + height - 2)
     });
     return () => setCursorPosition(undefined);

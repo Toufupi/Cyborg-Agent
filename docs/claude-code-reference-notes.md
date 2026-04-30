@@ -170,6 +170,17 @@ The current first pass intentionally avoids heavy features:
 
 This keeps Cyborg npm-friendly and understandable while giving it a real persistent command-line presence.
 
+## Windows IME Notes
+
+Claude Code's CJK/IME behavior depends on two related implementation details:
+
+- it parks the native terminal cursor at the rendered input caret, so IME preedit and candidate windows have a real cursor anchor;
+- it owns the text input state, including `cursorOffset`, rendered line/column, and display width, instead of relying on a black-box input widget.
+
+Cyborg now mirrors the first idea in the Ink chat by setting the native cursor position near the input row. It also uses display width rather than JavaScript string length for the end-of-input anchor, so Chinese/Japanese wide characters are counted as terminal columns instead of code units.
+
+Remaining gap: `ink-text-input` owns its internal cursor offset. When a user moves the caret into the middle of the line, Cyborg cannot yet anchor the native cursor to that exact internal position. Matching Claude Code more closely requires replacing `ink-text-input` with a small local input component that exposes `cursorOffset`, uses display-width-aware cursor math, and passes the exact line/column to the cursor anchor.
+
 ## Current Follow-Up Backlog
 
 The second TUI pass covers the most important pieces from the comparison:
@@ -180,6 +191,7 @@ The second TUI pass covers the most important pieces from the comparison:
 - permission mode, context pressure, approval, deny, token, and subagent visibility in the status line;
 - rough context token pressure in `/session` and planner conversation payloads;
 - stronger state evaluator stops for repeated actions, repeated error types, and no-progress context loops.
+- local display-width-aware TextInput replacement for more reliable Windows IME caret anchoring.
 
 Still valuable later:
 

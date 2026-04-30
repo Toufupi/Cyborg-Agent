@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { Invocation } from "./types.js";
 import { createApproval, consumeAllowedApproval } from "./approvals.js";
 import { assertPolicyDecision, checkInvocation, sanitizeEnv, type CyborgPolicy } from "./policy.js";
+import { appendAuditEvent } from "./audit.js";
 
 export interface RunOptions {
   input?: string;
@@ -33,6 +34,15 @@ export async function runInvocation(invocation: Invocation, options: RunOptions 
   if (options.policy) {
     const workspaceRoot = options.workspaceRoot ?? options.cwd ?? process.cwd();
     const decision = checkInvocation(options.policy, invocation, workspaceRoot);
+    if (options.policy.audit.enabled) {
+      await appendAuditEvent(workspaceRoot, {
+        type: "policy.invocation",
+        actor: options.requester?.agent,
+        subject: invocation.command,
+        decision: decision.allowed ? "allow" : "deny",
+        details: decision
+      });
+    }
     if (!decision.allowed && options.policy.approvals.mode === "ask") {
       const consumed = await consumeAllowedApproval(workspaceRoot, invocation);
       if (!consumed) {

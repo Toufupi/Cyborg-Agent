@@ -16,7 +16,7 @@ import { buildToolIndex } from "../agent/tool-context.js";
 import { listRuns } from "../session.js";
 import { startAgentShell } from "../agent/shell.js";
 import { addHook, listHooks } from "../hooks.js";
-import { addAgentProfile, listAgentProfiles, loadSubagentStatus, runSubagent } from "../agents.js";
+import { addAgentProfile, cancelSubagentStatus, listAgentProfiles, loadSubagentStatus, runSubagent } from "../agents.js";
 import { loadA2ATranscript } from "../a2a.js";
 import { addPolicy, listPolicies, loadPolicy } from "../policy.js";
 import { listApprovals, resolveApproval } from "../approvals.js";
@@ -24,6 +24,8 @@ import { doctorCyborg } from "../doctor.js";
 import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
 import { smokeModel } from "../model-client.js";
 import { createNodeTool } from "../tool-creator.js";
+import { readAuditEvents } from "../audit.js";
+import { runDueTasks, watchDueTasks } from "../scheduler.js";
 
 const program = new Command();
 
@@ -349,6 +351,24 @@ task.command("history")
     });
   });
 
+task.command("schedule")
+  .option("--once", "Run due scheduled tasks once and exit")
+  .option("--watch", "Keep polling scheduled tasks")
+  .option("--interval <ms>", "Watch poll interval in milliseconds", "60000")
+  .description("Run due scheduled tasks from .cyborg/tasks.")
+  .action(async (options: { once?: boolean; watch?: boolean; interval: string }) => {
+    if (options.watch) {
+      await watchDueTasks(process.cwd(), Number.parseInt(options.interval, 10), undefined, (result) => {
+        if (result.runs.length > 0) {
+          console.log(JSON.stringify({ ok: true, scheduler: result }, null, 2));
+        }
+      });
+      return;
+    }
+    const result = await runDueTasks(process.cwd());
+    console.log(JSON.stringify({ ok: true, scheduler: result }, null, 2));
+  });
+
 const hook = program.command("hook")
   .description("Manage lifecycle hooks around tasks, tools, and chat sessions.");
 
@@ -435,6 +455,15 @@ agent.command("status")
     console.log(JSON.stringify({ ok: true, status }, null, 2));
   });
 
+agent.command("cancel")
+  .argument("<file>", "Path to a subagent-status.json file or run directory")
+  .description("Mark a subagent run as cancelled.")
+  .action(async (file: string) => {
+    const statusFile = resolveRunArtifact(file, "subagent-status.json");
+    const status = await cancelSubagentStatus(statusFile);
+    console.log(JSON.stringify({ ok: true, status }, null, 2));
+  });
+
 const policy = program.command("policy")
   .description("Manage lightweight security and permission policies.");
 
@@ -490,6 +519,27 @@ approval.command("list")
     }
     approvals.forEach(({ approval }) => {
       console.log(`${approval.id}\t${approval.status}\t${approval.scope}:${approval.subject}\t${approval.reason}`);
+    });
+  });
+
+const audit = program.command("audit")
+  .description("Inspect Cyborg security and execution audit events.");
+
+audit.command("list")
+  .option("--json", "Print JSON")
+  .description("List audit events.")
+  .action(async (options: { json?: boolean }) => {
+    const events = await readAuditEvents(process.cwd());
+    if (options.json) {
+      console.log(JSON.stringify({ ok: true, events }, null, 2));
+      return;
+    }
+    if (events.length === 0) {
+      console.log("No audit events.");
+      return;
+    }
+    events.forEach((event) => {
+      console.log(`${event.time}\t${event.type}\t${event.decision ?? ""}\t${event.subject ?? ""}`);
     });
   });
 

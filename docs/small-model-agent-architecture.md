@@ -90,6 +90,15 @@ Implemented v0.2 additions:
 - `research-fetcher` provides the first research/news fetch-normalize tool contract.
 - `cyborg agent run <profile> <task> --worker planner` lets a subagent run through the planner loop instead of only deterministic task execution.
 
+Implemented v0.3 additions:
+
+- `cyborg task schedule --once` runs due tasks and updates scheduler state.
+- `cyborg task schedule --watch --interval <ms>` keeps a lightweight polling daemon in the foreground.
+- `research-fetcher` can call arXiv, GitHub repository search, RSS/Atom feeds, direct feed URLs, or deterministic sample sources.
+- policy includes network mode and host allowlist fields.
+- guarded invocations write JSONL audit events.
+- subagent profiles include `timeout_ms` and `max_concurrency`; status files include pid and can be marked cancelled.
+
 ## Context Budget Strategy
 
 Do not put everything into the prompt.
@@ -322,12 +331,16 @@ cyborg tool install page-generator-cli
 cyborg task add examples\research-progress.daily.json
 cyborg task run research-progress
 cyborg task history research-progress
+cyborg task schedule --once
+cyborg task schedule --watch --interval 60000
 cyborg hook list
 cyborg policy show
 cyborg approval list
 cyborg agent list
 cyborg agent run researcher research-progress
 cyborg agent run researcher research-progress --worker planner
+cyborg agent cancel .cyborg\runs\agent-researcher-...\subagent-status.json
+cyborg audit list
 cyborg tui
 ```
 

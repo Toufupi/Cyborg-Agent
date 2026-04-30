@@ -126,15 +126,140 @@ function validateInput(request) {
     topic: input.topic.trim(),
     sources,
     limit,
-    since: typeof input.since === "string" ? input.since : undefined
+    since: typeof input.since === "string" ? input.since : undefined,
+    timeoutMs: Number.isInteger(Number(input.timeoutMs)) ? Math.max(1000, Math.min(Number(input.timeoutMs), 30000)) : 8000
   };
 }
 
 async function fetchResearchItems(input) {
-  const sample = sampleItems(input.topic);
-  const sourceSet = new Set(input.sources);
-  const filtered = sample.filter((item) => sourceSet.has("sample") || sourceSet.has(item.source));
-  return dedupe(filtered).slice(0, input.limit);
+  const batches = await Promise.all(input.sources.map((source) => fetchSource(source, input)));
+  return dedupe(batches.flat()).slice(0, input.limit);
+}
+
+async function fetchSource(source, input) {
+  if (source === "sample") {
+    return sampleItems(input.topic);
+  }
+  if (source === "arxiv") {
+    return fetchArxiv(input.topic, input.timeoutMs);
+  }
+  if (source.startsWith("arxiv:")) {
+    return fetchArxiv(source.slice("arxiv:".length) || input.topic, input.timeoutMs);
+  }
+  if (source.startsWith("rss:")) {
+    return fetchRss(source.slice("rss:".length), input.timeoutMs);
+  }
+  if (source.startsWith("github:")) {
+    return fetchGitHub(source.slice("github:".length) || input.topic, input.timeoutMs);
+  }
+  if (/^https?:\/\//i.test(source)) {
+    return fetchRss(source, input.timeoutMs);
+  }
+  return [];
+}
+
+async function fetchArxiv(query, timeoutMs) {
+  const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&start=0&max_results=5&sortBy=submittedDate&sortOrder=descending`;
+  const xml = await fetchText(url, timeoutMs);
+  return [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map((match) => {
+    const entry = match[1];
+    const title = textTag(entry, "title");
+    const summary = textTag(entry, "summary");
+    const date = textTag(entry, "published").slice(0, 10);
+    const link = /<id>([\s\S]*?)<\/id>/.exec(entry)?.[1]?.trim() ?? "";
+    return {
+      title,
+      source: "arxiv",
+      url: link,
+      date,
+      summary: compact(summary),
+      relevance: score(title, summary, query),
+      tags: ["arxiv", "paper"]
+    };
+  }).filter((item) => item.title);
+}
+
+async function fetchRss(url, timeoutMs) {
+  const xml = await fetchText(url, timeoutMs);
+  const itemMatches = [...xml.matchAll(/<(item|entry)>([\s\S]*?)<\/\1>/g)];
+  return itemMatches.slice(0, 10).map((match) => {
+    const item = match[2];
+    const title = textTag(item, "title");
+    const summary = textTag(item, "description") || textTag(item, "summary");
+    const date = (textTag(item, "pubDate") || textTag(item, "updated") || textTag(item, "published")).slice(0, 24);
+    const link = textTag(item, "link") || (/<link[^>]+href="([^"]+)"/.exec(item)?.[1] ?? "");
+    return {
+      title,
+      source: "rss",
+      url: link,
+      date,
+      summary: compact(summary),
+      relevance: 0.7,
+      tags: ["rss"]
+    };
+  }).filter((item) => item.title);
+}
+
+async function fetchGitHub(query, timeoutMs) {
+  const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=updated&order=desc&per_page=5`;
+  const json = JSON.parse(await fetchText(url, timeoutMs, { accept: "application/vnd.github+json" }));
+  return (json.items ?? []).map((repo) => ({
+    title: repo.full_name,
+    source: "github",
+    url: repo.html_url,
+    date: repo.updated_at?.slice(0, 10) ?? "",
+    summary: repo.description ?? "",
+    relevance: Math.min(0.95, 0.6 + Math.log10((repo.stargazers_count ?? 0) + 1) / 10),
+    tags: ["github", repo.language].filter(Boolean)
+  }));
+}
+
+async function fetchText(url, timeoutMs, headers = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "user-agent": "cyborg-agent-research-fetcher/0.1",
+        ...headers
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`Fetch failed for ${url}: ${response.status} ${response.statusText}`);
+    }
+    return await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function textTag(xml, tag) {
+  const match = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i").exec(xml);
+  return decodeXml(match?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, "").trim() ?? "");
+}
+
+function compact(value) {
+  return value.replace(/\s+/g, " ").trim().slice(0, 500);
+}
+
+function decodeXml(value) {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'");
+}
+
+function score(title, summary, query) {
+  const haystack = `${title} ${summary}`.toLowerCase();
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) {
+    return 0.7;
+  }
+  const hits = terms.filter((term) => haystack.includes(term)).length;
+  return Math.min(0.98, 0.6 + hits / terms.length * 0.35);
 }
 
 function sampleItems(topic) {

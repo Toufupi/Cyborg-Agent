@@ -24,6 +24,8 @@ export const AgentProfileSchema = z.object({
   policy: z.string().min(1).optional(),
   allowed_tools: z.array(z.string().min(1)).default([]),
   allowed_tasks: z.array(z.string().min(1)).default([]),
+  timeout_ms: z.number().int().positive().max(24 * 60 * 60 * 1000).default(30 * 60 * 1000),
+  max_concurrency: z.number().int().positive().max(16).default(1),
   instructions: z.string().max(4000).optional()
 });
 
@@ -43,7 +45,8 @@ export const SubagentStatusSchema = z.object({
   error: z.object({
     code: z.string().min(1),
     message: z.string().min(1)
-  }).optional()
+  }).optional(),
+  pid: z.number().int().optional()
 });
 
 export type SubagentStatus = z.output<typeof SubagentStatusSchema>;
@@ -100,6 +103,7 @@ export async function runSubagent(profileName: string, taskName: string, root = 
   }
 
   const session = await createSession(root, `agent-${profile.name}`);
+  await assertSubagentConcurrency(root, profile);
   let status = await saveSubagentStatus(session, createSubagentStatus(session, profile.name, task.name));
   const conversationId = createA2AConversationId(`a2a-${profile.name}`);
   const transcript = createA2ATranscript(conversationId);
@@ -148,18 +152,19 @@ export async function runSubagent(profileName: string, taskName: string, root = 
       a2a_transcript: transcriptPath(session)
     });
     const workerMode = options.worker ?? "task";
-    const taskRun = workerMode === "planner"
-      ? await runAgentGoal([
+    const taskPromise = workerMode === "planner"
+      ? runAgentGoal([
         profile.instructions,
         `Task: ${task.name}`,
         `Goal: ${task.goal}`,
         `Allowed tools: ${profile.allowed_tools.join(", ") || "profile default"}`
       ].filter(Boolean).join("\n"), root)
-      : await runTask(taskName, root, {
+      : runTask(taskName, root, {
         parentSessionId: session.id,
         agent: profile.name,
         policy
       });
+    const taskRun = await withTimeout(taskPromise, profile.timeout_ms, `Subagent '${profile.name}' timed out after ${profile.timeout_ms}ms.`);
     appendA2AMessage(transcript, createA2AMessage({
       conversationId,
       from: child,
@@ -225,6 +230,21 @@ export async function loadSubagentStatus(file: string) {
   return SubagentStatusSchema.parse(JSON.parse(await readFile(path.resolve(file), "utf8")));
 }
 
+export async function cancelSubagentStatus(file: string, reason = "cancelled by user") {
+  const status = await loadSubagentStatus(file);
+  const next = SubagentStatusSchema.parse({
+    ...status,
+    status: "cancelled",
+    updated_at: new Date().toISOString(),
+    error: {
+      code: "subagent_cancelled",
+      message: reason
+    }
+  });
+  await writeFile(path.resolve(file), `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  return next;
+}
+
 async function saveSubagentStatus(session: CyborgSession, status: SubagentStatus) {
   const file = subagentStatusPath(session);
   await writeFile(file, `${JSON.stringify(SubagentStatusSchema.parse(status), null, 2)}\n`, "utf8");
@@ -241,8 +261,55 @@ function createSubagentStatus(session: CyborgSession, agent: string, task: strin
     status: "starting",
     created_at: now,
     updated_at: now,
-    parent_session_id: session.id
+    parent_session_id: session.id,
+    pid: process.pid
   };
+}
+
+async function assertSubagentConcurrency(root: string, profile: AgentProfile) {
+  const runsDir = path.join(path.resolve(root), ".cyborg", "runs");
+  try {
+    const entries = await readdir(runsDir, { withFileTypes: true });
+    let running = 0;
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith(`agent-${profile.name}-`)) {
+        continue;
+      }
+      const file = path.join(runsDir, entry.name, "subagent-status.json");
+      try {
+        const status = await loadSubagentStatus(file);
+        if (status.status === "starting" || status.status === "running") {
+          running += 1;
+        }
+      } catch {
+        // Ignore incomplete historical runs.
+      }
+    }
+    if (running >= profile.max_concurrency) {
+      throw new Error(`Agent '${profile.name}' reached max_concurrency=${profile.max_concurrency}.`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 function parseAgentMarkdown(raw: string): AgentProfile {

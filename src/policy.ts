@@ -62,7 +62,14 @@ export const CyborgPolicySchema = z.object({
   }),
   approvals: z.object({
     mode: z.enum(["deny", "allow", "ask"]).default("deny")
-  }).default({ mode: "deny" })
+  }).default({ mode: "deny" }),
+  network: z.object({
+    mode: z.enum(["deny", "allow", "ask"]).default("deny"),
+    allow_hosts: z.array(z.string().min(1)).default([])
+  }).default({ mode: "deny", allow_hosts: [] }),
+  audit: z.object({
+    enabled: z.boolean().default(true)
+  }).default({ enabled: true })
 });
 
 export type CyborgPolicy = z.output<typeof CyborgPolicySchema>;
@@ -178,6 +185,27 @@ export function checkWorkspacePath(policy: CyborgPolicy, targetPath: string, roo
     return deny(policy, `filesystem.${access}`, resolved, `path is not inside allowed ${access} roots`);
   }
   return allow(policy, `filesystem.${access}`, resolved, "path allowed");
+}
+
+export function checkNetwork(policy: CyborgPolicy, url: string): PolicyDecision {
+  if (isBypassAll(policy)) {
+    return allow(policy, "network", url, "bypass-all mode");
+  }
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return deny(policy, "network", url, "invalid url");
+  }
+  if (policy.network.mode === "allow") {
+    if (policy.network.allow_hosts.length === 0 || policy.network.allow_hosts.map(normalizeName).includes(host)) {
+      return allow(policy, "network", host, "network host allowed");
+    }
+  }
+  if (policy.network.mode === "ask" && policy.network.allow_hosts.map(normalizeName).includes(host)) {
+    return allow(policy, "network", host, "network host allowed");
+  }
+  return deny(policy, "network", host, "network host not allowed");
 }
 
 export function sanitizeEnv(policy: CyborgPolicy, env: Record<string, string | undefined>) {

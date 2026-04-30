@@ -129,9 +129,11 @@ npm run cyborg -- hook list
 npm run cyborg -- policy list
 npm run cyborg -- policy show
 npm run cyborg -- approval list
+npm run cyborg -- audit list
 npm run cyborg -- agent list
 npm run cyborg -- agent run researcher research-progress
 npm run cyborg -- agent run researcher research-progress --worker planner
+npm run cyborg -- agent cancel .cyborg\runs\agent-researcher-...\subagent-status.json
 ```
 
 Running `npm run cyborg` with no command opens the persistent interactive shell:
@@ -219,6 +221,14 @@ Implemented v0.2 agent pieces:
 - local Node tool scaffolding through `cyborg tool create`;
 - built-in `research-fetcher` A2C2A tool scaffold for research/news report pipelines;
 - subagent planner worker mode through `cyborg agent run <agent> <task> --worker planner`.
+
+Implemented v0.3 runtime pieces:
+
+- scheduler scan/daemon mode through `cyborg task schedule --once` and `--watch`;
+- execution audit log under `.cyborg/audit/events.jsonl`;
+- network policy fields for allow/deny/ask host control;
+- subagent timeout, cancellation state, pid metadata, and profile concurrency limit;
+- `research-fetcher` sources: `sample`, `arxiv`, `arxiv:<query>`, `rss:<url>`, `github:<query>`, and direct RSS/Atom URLs.
 
 Register the built-in research fetcher:
 
@@ -609,6 +619,8 @@ npm run cyborg -- init
 npm run cyborg -- task add examples\research-progress.daily.json
 npm run cyborg -- task list
 npm run cyborg -- task run research-progress
+npm run cyborg -- task schedule --once
+npm run cyborg -- task schedule --watch --interval 60000
 npm run cyborg -- task history research-progress
 ```
 

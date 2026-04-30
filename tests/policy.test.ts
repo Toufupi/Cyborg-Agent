@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertPolicyDecision,
   checkInvocation,
+  checkNetwork,
   checkWorkspacePath,
   checkTool,
   defaultPolicy,
@@ -86,5 +87,18 @@ describe("policy", () => {
 
     expect(checkTool(policy, "page-generator-cli").allowed).toBe(true);
     expect(checkTool(policy, "unknown-tool").allowed).toBe(false);
+  });
+
+  it("checks network host allowlists", () => {
+    const policy = {
+      ...defaultPolicy(),
+      network: {
+        mode: "allow" as const,
+        allow_hosts: ["export.arxiv.org"]
+      }
+    };
+
+    expect(checkNetwork(policy, "https://export.arxiv.org/api/query").allowed).toBe(true);
+    expect(checkNetwork(policy, "https://example.com")).toMatchObject({ allowed: false, scope: "network" });
   });
 });

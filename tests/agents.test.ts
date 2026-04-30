@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadA2ATranscript } from "../src/a2a.js";
-import { addAgentProfile, listAgentProfiles, loadAgentProfile, loadSubagentStatus, runSubagent } from "../src/agents.js";
+import { addAgentProfile, cancelSubagentStatus, listAgentProfiles, loadAgentProfile, loadSubagentStatus, runSubagent } from "../src/agents.js";
 import { addTool } from "../src/registry.js";
 import { addTask } from "../src/task.js";
 import { fakeToolRegistration, withTempWorkspace, writeJson } from "./helpers.js";
@@ -111,6 +111,8 @@ describe("agent profiles and subagents", () => {
       expect(loaded.model_profile).toBe("small");
       expect(loaded.allowed_tools).toEqual(["page-generator-cli", "search-tool"]);
       expect(loaded.allowed_tasks).toEqual(["research-progress"]);
+      expect(loaded.timeout_ms).toBe(30 * 60 * 1000);
+      expect(loaded.max_concurrency).toBe(1);
       expect(loaded.instructions).toContain("compact reports");
     });
   });
@@ -139,6 +141,25 @@ describe("agent profiles and subagents", () => {
       await addAgentProfile(profileFile, root);
 
       await expect(runSubagent("limited", "blocked-task", root)).rejects.toThrow("not allowed to run task");
+    });
+  });
+
+  it("marks subagent status files as cancelled", async () => {
+    await withTempWorkspace(async (root) => {
+      const file = await writeJson(root, "subagent-status.json", {
+        schema: "cyborg.subagent-status.v0.1",
+        run_id: "run-1",
+        agent: "researcher",
+        task: "report",
+        status: "running",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+      const status = await cancelSubagentStatus(file, "test cancel");
+
+      expect(status.status).toBe("cancelled");
+      expect(status.error?.message).toBe("test cancel");
     });
   });
 });

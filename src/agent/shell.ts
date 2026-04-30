@@ -1,4 +1,4 @@
-import { Buffer } from "node:buffer";
+﻿import { Buffer } from "node:buffer";
 import { stdin as input, stdout as output } from "node:process";
 import readline from "node:readline";
 import { loadA2ATranscript } from "../a2a.js";
@@ -375,6 +375,9 @@ async function runNaturalIntent(line: string, state: ShellState): Promise<ShellR
   if (lower.includes("history")) {
     return { output: await formatHistory(undefined, state.root) };
   }
+  if (isCapabilityQuestion(lower)) {
+    return { output: capabilityText() };
+  }
 
   const runIndex = words.findIndex((word) => ["run", "task"].includes(word.toLowerCase()));
   if (runIndex >= 0 && words[runIndex + 1]) {
@@ -384,6 +387,26 @@ async function runNaturalIntent(line: string, state: ShellState): Promise<ShellR
   return {
     output: await runAgentIntent(line, state)
   };
+}
+
+function isCapabilityQuestion(lower: string) {
+  return [
+    "what can you do",
+    "what are your capabilities",
+    "what can cyborg do",
+    "\u4f60\u80fd\u505a\u4ec0\u4e48",
+    "\u4f60\u53ef\u4ee5\u505a\u4ec0\u4e48",
+    "\u6709\u4ec0\u4e48\u80fd\u529b",
+    "\u4ecb\u7ecd\u4e00\u4e0b"
+  ].some((phrase) => lower.includes(phrase));
+}
+
+function capabilityText() {
+  return [
+    "I am Cyborg-Agent, a lightweight A2C2A-first agent shell.",
+    "I can inspect registered tools and tasks, choose a small-model plan, call A2C2A CLI tools, repair structured tool errors, route fallback to a larger model when configured, run scheduled tasks, manage subagents, and keep auditable sessions/memory.",
+    "Use /tools or /tasks to see what is installed in this workspace."
+  ].join("\n");
 }
 
 async function runAgentIntent(line: string, state: ShellState) {
@@ -713,7 +736,7 @@ function helpText() {
     "  list agents",
     "  list policies",
     "  list approvals",
-    "  run task research-progress",
+    "  run task <task-name>",
     "",
     "Any other natural language line is sent to the Cyborg agent planner."
   ].join("\n");

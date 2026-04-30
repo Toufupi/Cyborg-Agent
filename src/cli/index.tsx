@@ -106,8 +106,8 @@ program.command("ask")
   .addHelpText("after", `
 
 Examples:
-  $ cyborg ask "run the research progress report"
-  $ cyborg ask "use page-generator-cli to render a project page" --max-repair 2`)
+  $ cyborg ask "run the daily-report task"
+  $ cyborg ask "call the registered report tool with this request" --max-repair 2`)
   .action(async (goalParts: string[], options: { maxRepair: string }) => {
     const result = await runAgentGoal(goalParts.join(" "), process.cwd(), {
       maxRepairAttempts: Number.parseInt(options.maxRepair, 10)
@@ -247,8 +247,8 @@ tool.command("call")
   .addHelpText("after", `
 
 Examples:
-  $ cyborg tool call page-generator-cli --request examples\\a2c2a-render.json
-  $ Get-Content -Raw request.json | cyborg tool call page-generator-cli`)
+  $ cyborg tool call report-tool --request examples\\a2c2a-render.json
+  $ Get-Content -Raw request.json | cyborg tool call report-tool`)
   .action(async (name: string, options: { request?: string; tui?: boolean }) => {
     if (options.tui) {
       render(<App toolName={name} requestFile={options.request} />);

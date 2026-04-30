@@ -99,4 +99,22 @@ describe("memory", () => {
       }));
     });
   });
+
+  it("excludes capability chat memories from planner retrieval", async () => {
+    await withTempWorkspace(async (root) => {
+      await addMemory(root, {
+        type: "run_memory",
+        title: "Capability answer",
+        summary: "I can use page-generator-cli and research-fetcher.",
+        tags: ["capability-chat"]
+      });
+
+      const found = await searchMemories(root, {
+        goal: "what can you do",
+        limit: 5
+      });
+
+      expect(found).toHaveLength(0);
+    });
+  });
 });

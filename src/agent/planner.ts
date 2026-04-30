@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+﻿import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { chooseModel } from "../model-router.js";
 import { loadConfig } from "../config.js";
@@ -530,7 +530,7 @@ function plannerSystemPrompt() {
     "{\"kind\":\"inspect_context\",\"reason\":\"short\"}",
     "{\"kind\":\"inspect_tool\",\"tool\":\"name\",\"include\":\"manifest\",\"reason\":\"short\"}",
     "{\"kind\":\"inspect_run\",\"prefix\":\"optional-prefix\",\"limit\":3,\"reason\":\"short\"}",
-    "{\"kind\":\"create_tool\",\"name\":\"semantic-tool-name\",\"description\":\"short\",\"category\":\"research\",\"register\":true,\"reason\":\"short\"}",
+    "{\"kind\":\"create_tool\",\"name\":\"semantic-tool-name\",\"description\":\"short\",\"category\":\"general\",\"register\":true,\"reason\":\"short\"}",
     "{\"kind\":\"run_task\",\"task\":\"name\",\"confidence\":0.0,\"reason\":\"short\"}",
     "{\"kind\":\"call_tool\",\"tool\":\"name\",\"request\":{\"a2c2a\":\"0.1\",\"action\":\"domain.action\",\"input\":{},\"meta\":{}},\"confidence\":0.0,\"reason\":\"short\"}",
     "{\"kind\":\"answer\",\"message\":\"short answer\",\"confidence\":0.0,\"reason\":\"short\"}",
@@ -538,7 +538,8 @@ function plannerSystemPrompt() {
     "Inspect a tool manifest before calling it if the action/input contract is unclear.",
     "Use create_tool only when no registered tool or task can satisfy a repeatable capability.",
     "Prefer registered tasks for recurring goals. Prefer call_tool when a tool directly solves the goal.",
-    "Use only tools and tasks listed in context."
+    "Use only tools and tasks listed in context.",
+    "Do not introduce installed tools or demo tasks unless the user asks for capabilities, tools, tasks, or a matching goal."
   ].join("\n");
 }
 
@@ -638,6 +639,9 @@ function addUsage(bucket: ReturnType<typeof emptyUsageBucket>, usage?: ModelUsag
 }
 
 async function rememberAgentRun(root: string, input: { goal: string; output: string; run: string; finalPlan: AgentPlan }) {
+  if (isCapabilityChat(input.goal, input.output)) {
+    return;
+  }
   const ok = !input.output.includes("\"ok\": false");
   await addMemory(root, {
     type: "run_memory",
@@ -653,6 +657,18 @@ async function rememberAgentRun(root: string, input: { goal: string; output: str
       ok
     }
   });
+}
+
+function isCapabilityChat(goal: string, output: string) {
+  const text = `${goal}\n${output}`.toLowerCase();
+  return [
+    "what can you do",
+    "what are your capabilities",
+    "\u4f60\u80fd\u505a\u4ec0\u4e48",
+    "\u4f60\u53ef\u4ee5\u505a\u4ec0\u4e48",
+    "\u6709\u4ec0\u4e48\u80fd\u529b"
+  ].some((phrase) => text.includes(phrase))
+    || (text.includes("page-generator-cli") && text.includes("research-fetcher"));
 }
 
 function summarizeOutput(output: string) {

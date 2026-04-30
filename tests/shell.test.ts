@@ -172,6 +172,20 @@ describe("interactive shell", () => {
     });
   });
 
+  it("answers capability questions without leaking demo tool names into self-description", async () => {
+    await withTempWorkspace(async (root) => {
+      const modelClient = new CapturingModelClient();
+      const state = await createShellState(root, { modelClient });
+      const result = await executeShellLine("你能做什么", state);
+
+      expect(result.output).toContain("A2C2A-first");
+      expect(result.output).toContain("/tools");
+      expect(result.output).not.toContain("page-generator-cli");
+      expect(result.output).not.toContain("research-fetcher");
+      expect(modelClient.messages).toHaveLength(0);
+    });
+  });
+
   it("streams natural language shell input through the agent planner", async () => {
     await withTempWorkspace(async (root) => {
       const modelClient = new CapturingModelClient();

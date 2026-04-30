@@ -119,10 +119,10 @@ export async function listMemories(root = process.cwd()) {
       const files = (await readdir(dir)).filter((file) => file.endsWith(".json")).sort();
       for (const file of files) {
         const fullPath = path.join(dir, file);
-        results.push({
-          file: fullPath,
-          memory: MemoryRecordSchema.parse(JSON.parse(await readFile(fullPath, "utf8")))
-        });
+        const memory = await readMemoryFile(fullPath);
+        if (memory) {
+          results.push({ file: fullPath, memory });
+        }
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -133,10 +133,19 @@ export async function listMemories(root = process.cwd()) {
   return results;
 }
 
+async function readMemoryFile(file: string) {
+  try {
+    return MemoryRecordSchema.parse(JSON.parse(await readFile(file, "utf8")));
+  } catch {
+    return undefined;
+  }
+}
+
 export async function searchMemories(root: string, query: { goal?: string; tool?: string; task?: string; tags?: string[]; limit?: number }) {
   const terms = tokenize([query.goal, query.tool, query.task, ...(query.tags ?? [])].filter(Boolean).join(" "));
   const memories = await listMemories(root);
   return memories
+    .filter(({ memory }) => !memory.tags.includes("capability-chat"))
     .map((item) => ({ ...item, score: scoreMemory(item.memory, query, terms) }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score || b.memory.updated_at.localeCompare(a.memory.updated_at))

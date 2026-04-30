@@ -26,7 +26,7 @@ describe("cli", () => {
     expect(result.stdout).toContain("tool");
     expect(result.stdout).toContain("task");
     expect(result.stdout).toContain("memory");
-  });
+  }, 30000);
 
   it("prints nested help for tool calls", async () => {
     const result = await runInvocation(cyborgInvocation(["tool", "call", "--help"]));

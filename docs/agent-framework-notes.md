@@ -47,6 +47,7 @@ src/
   a2a.ts                  # parent/subagent transcript
   policy.ts               # permission policy and workspace guards
   approvals.ts            # allow-once approval queue
+  scheduler.ts            # due-task scan and foreground daemon state
   agent/
     tool-context.ts       # collect help + manifest for relevant tools
     task-runner.ts        # deterministic task execution through A2C2A
@@ -106,12 +107,15 @@ The shell is a protocol environment, not a full OS sandbox. The current implemen
 - command allowlists;
 - approval queue;
 - isolated Node tool runtimes.
+- cancellable tool invocations through `AbortSignal`;
+- subagent heartbeat/progress status files.
 
 Still missing:
 
 - OS/container sandboxing for untrusted tools;
-- network permissions;
 - complete artifact tracking.
+
+Docker is intentionally not required for the lightweight trusted-local path. Container isolation belongs to a later untrusted-tool mode.
 
 ## Tool Use Policy
 

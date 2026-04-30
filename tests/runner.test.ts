@@ -27,4 +27,18 @@ describe("runner", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toBe("cyborg:hello");
   });
+
+  it("aborts running invocations", async () => {
+    const controller = new AbortController();
+    const promise = runInvocation({
+      command: process.execPath,
+      args: ["-e", "setTimeout(() => console.log('late'), 1000)"]
+    }, {
+      signal: controller.signal
+    });
+
+    controller.abort();
+
+    await expect(promise).rejects.toThrow("Invocation aborted");
+  });
 });

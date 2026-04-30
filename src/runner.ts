@@ -10,6 +10,7 @@ export interface RunOptions {
   env?: Record<string, string>;
   policy?: CyborgPolicy;
   workspaceRoot?: string;
+  signal?: AbortSignal;
   requester?: {
     agent?: string;
     session_id?: string;
@@ -31,6 +32,9 @@ function resolveSpawn(command: string, args: string[]) {
 }
 
 export async function runInvocation(invocation: Invocation, options: RunOptions = {}) {
+  if (options.signal?.aborted) {
+    throw new Error("Invocation aborted before start.");
+  }
   if (options.policy) {
     const workspaceRoot = options.workspaceRoot ?? options.cwd ?? process.cwd();
     const decision = checkInvocation(options.policy, invocation, workspaceRoot);
@@ -74,14 +78,43 @@ export async function runInvocation(invocation: Invocation, options: RunOptions 
     });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    let abortError: Error | undefined;
+    const cleanup = () => {
+      options.signal?.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
+      if (settled) {
+        return;
+      }
+      abortError = new Error("Invocation aborted.");
+      child.kill();
+    };
+    options.signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(error);
+    });
     child.on("close", (code) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      if (abortError) {
+        reject(abortError);
+        return;
+      }
       resolve({ code, stdout, stderr });
     });
     if (options.input !== undefined) {

@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadA2ATranscript } from "../src/a2a.js";
 import { addAgentProfile, cancelSubagentStatus, listAgentProfiles, loadAgentProfile, loadSubagentStatus, runSubagent, runToolBuilderSubagent } from "../src/agents.js";
+import { readAuditEvents } from "../src/audit.js";
 import { addTool } from "../src/registry.js";
 import { addTask } from "../src/task.js";
 import { fakeToolRegistration, withTempWorkspace, writeJson } from "./helpers.js";
@@ -78,14 +79,18 @@ describe("agent profiles and subagents", () => {
       expect((await loadAgentProfile("researcher", root)).model_profile).toBe("small");
       expect(run.events.map((event) => event.type)).toEqual(["subagent.start", "subagent.end"]);
       expect(JSON.stringify(run.events)).toContain("report-task");
-      expect(transcript.messages.map((message) => message.type)).toEqual(["delegate", "accept", "result"]);
+      expect(transcript.messages.map((message) => message.type)).toEqual(["delegate", "accept", "progress", "progress", "progress", "result"]);
       expect(transcript.messages[0]?.from.agent).toBe("cyborg");
       expect(transcript.messages[0]?.to.agent).toBe("researcher");
-      expect(transcript.messages[2]?.data).toEqual({ taskRun: expect.stringContaining("report-task") });
+      expect(transcript.messages.at(-1)?.data).toEqual({ taskRun: expect.stringContaining("report-task") });
       expect(status.status).toBe("completed");
       expect(status.agent).toBe("researcher");
       expect(status.task).toBe("report-task");
       expect(status.task_run).toContain("report-task");
+      expect(status.worker).toBe("task");
+      expect(status.progress?.phase).toBe("completed");
+      expect(status.heartbeat_at).toBeTruthy();
+      expect((await readAuditEvents(root)).map((event) => event.type)).toContain("subagent.end");
     });
   });
 
@@ -180,6 +185,46 @@ describe("agent profiles and subagents", () => {
       expect(status.agent).toBe("tool-builder");
       expect(status.status).toBe("completed");
       expect(transcript.messages.map((message) => message.type)).toEqual(["delegate", "accept", "result"]);
+    });
+  });
+
+  it("times out running subagents and records structured status", async () => {
+    await withTempWorkspace(async (root) => {
+      const script = path.join(root, "slow-tool.mjs");
+      await writeFile(script, "setTimeout(() => console.log(JSON.stringify({ ok: true })), 1000); process.stdin.resume();", "utf8");
+      await addTool(await writeJson(root, "tool.json", fakeToolRegistration({
+        name: "slow-tool",
+        discovery: {
+          strategy: "static",
+          a2c2a: {
+            command: process.execPath,
+            args: [script]
+          }
+        }
+      })), root);
+      await addTask(await writeJson(root, "task.json", {
+        name: "slow-task",
+        goal: "Run slowly.",
+        steps: [{ name: "slow", tool: "slow-tool", action: "run", input: {} }]
+      }), root);
+      await addAgentProfile(await writeJson(root, "agent.json", {
+        schema: "cyborg.agent-profile.v0.1",
+        name: "sprinter",
+        allowed_tools: ["slow-tool"],
+        allowed_tasks: ["slow-task"],
+        timeout_ms: 100
+      }), root);
+
+      await expect(runSubagent("sprinter", "slow-task", root)).rejects.toThrow("timed out");
+      const runs = await import("../src/session.js").then(({ listRuns }) => listRuns(root, "agent-sprinter"));
+      const runDir = path.dirname(runs[0]?.file ?? "");
+      const status = await loadSubagentStatus(path.join(runDir, "subagent-status.json"));
+      const transcript = await loadA2ATranscript(path.join(runDir, "a2a.json"));
+
+      expect(status.status).toBe("failed");
+      expect(status.error?.code).toBe("subagent_timeout");
+      expect(transcript.messages.at(-1)?.type).toBe("error");
+      expect((await readAuditEvents(root)).map((event) => event.type)).toContain("subagent.error");
     });
   });
 });

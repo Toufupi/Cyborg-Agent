@@ -18,6 +18,7 @@ import { assertPolicyDecision, checkTask, checkTool, loadPolicy } from "./policy
 import { createNodeTool, type CreateNodeToolOptions } from "./tool-creator.js";
 import { addTool } from "./registry.js";
 import { doctorTool } from "./tool-runtime.js";
+import { appendAuditEvent } from "./audit.js";
 
 export const AgentProfileSchema = z.object({
   schema: z.literal("cyborg.agent-profile.v0.1").default("cyborg.agent-profile.v0.1"),
@@ -43,8 +44,17 @@ export const SubagentStatusSchema = z.object({
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
   parent_session_id: z.string().min(1).optional(),
+  worker: z.enum(["task", "planner", "tool-builder"]).optional(),
   task_run: z.string().optional(),
   a2a_transcript: z.string().optional(),
+  heartbeat_at: z.string().datetime().optional(),
+  progress: z.object({
+    phase: z.string().min(1),
+    current_step: z.string().optional(),
+    completed_steps: z.number().int().nonnegative().optional(),
+    total_steps: z.number().int().nonnegative().optional()
+  }).optional(),
+  cancel_requested_at: z.string().datetime().optional(),
   error: z.object({
     code: z.string().min(1),
     message: z.string().min(1)
@@ -147,14 +157,65 @@ export async function runSubagent(profileName: string, taskName: string, root = 
       transcript: transcriptPath(session)
     }
   });
+  await appendAuditEvent(root, {
+    type: "subagent.start",
+    actor: "cyborg",
+    subject: profile.name,
+    decision: "start",
+    details: {
+      run_id: session.id,
+      task: task.name,
+      worker: options.worker ?? "task",
+      policy: policy.name
+    }
+  });
+  const abortController = new AbortController();
+  const stopCancellationWatch = watchSubagentCancellation(status.file, abortController);
+  let acceptingProgress = true;
+  let progressChain = Promise.resolve();
+  const enqueueProgress = (progress: {
+    phase: "starting" | "step" | "completed";
+    current_step?: string;
+    completed_steps: number;
+    total_steps: number;
+  }) => {
+    progressChain = progressChain.then(async () => {
+      if (!acceptingProgress) {
+        return;
+      }
+      status = await saveSubagentStatus(session, {
+        ...status.status,
+        status: "running",
+        updated_at: new Date().toISOString(),
+        heartbeat_at: new Date().toISOString(),
+        progress
+      });
+      if (!acceptingProgress) {
+        return;
+      }
+      appendA2AMessage(transcript, createA2AMessage({
+        conversationId,
+        from: child,
+        to: parent,
+        type: "progress",
+        task: task.name,
+        content: progress.current_step ? `Running step ${progress.current_step}.` : `Worker phase ${progress.phase}.`,
+        data: progress
+      }));
+      await saveA2ATranscript(session, transcript);
+    });
+    return progressChain;
+  };
   try {
+    const workerMode = options.worker ?? "task";
     status = await saveSubagentStatus(session, {
       ...status.status,
       status: "running",
       updated_at: new Date().toISOString(),
+      heartbeat_at: new Date().toISOString(),
+      worker: workerMode,
       a2a_transcript: transcriptPath(session)
     });
-    const workerMode = options.worker ?? "task";
     const taskPromise = workerMode === "planner"
       ? runAgentGoal([
         profile.instructions,
@@ -165,9 +226,13 @@ export async function runSubagent(profileName: string, taskName: string, root = 
       : runTask(taskName, root, {
         parentSessionId: session.id,
         agent: profile.name,
-        policy
+        policy,
+        signal: abortController.signal,
+        onProgress: enqueueProgress
       });
-    const taskRun = await withTimeout(taskPromise, profile.timeout_ms, `Subagent '${profile.name}' timed out after ${profile.timeout_ms}ms.`);
+    const taskRun = await withDeadline(taskPromise, profile.timeout_ms, abortController, `Subagent '${profile.name}' timed out after ${profile.timeout_ms}ms.`);
+    acceptingProgress = false;
+    await progressChain;
     appendA2AMessage(transcript, createA2AMessage({
       conversationId,
       from: child,
@@ -195,32 +260,70 @@ export async function runSubagent(profileName: string, taskName: string, root = 
         transcript: saved.file
       }
     });
+    await appendAuditEvent(root, {
+      type: "subagent.end",
+      actor: profile.name,
+      subject: task.name,
+      decision: "completed",
+      details: {
+        run_id: session.id,
+        task_run: taskRun.file,
+        worker: workerMode
+      }
+    });
   } catch (error) {
+    acceptingProgress = false;
+    await progressChain;
     const message = error instanceof Error ? error.message : String(error);
+    const cancelled = abortController.signal.aborted && message !== `Subagent '${profile.name}' timed out after ${profile.timeout_ms}ms.`;
+    const timeout = message.includes("timed out after");
     appendA2AMessage(transcript, createA2AMessage({
       conversationId,
       from: child,
       to: parent,
-      type: "error",
+      type: cancelled ? "cancel" : "error",
       task: task.name,
-      content: `Failed task ${task.name}.`,
-      error: {
-        code: "subagent_runtime_error",
+      content: cancelled ? `Cancelled task ${task.name}.` : `Failed task ${task.name}.`,
+      error: cancelled ? undefined : {
+        code: timeout ? "subagent_timeout" : "subagent_runtime_error",
         message
-      }
+      },
+      data: cancelled ? {
+        reason: message
+      } : undefined
     }));
     const saved = await saveA2ATranscript(session, transcript);
-    await saveSubagentStatus(session, {
+    const failedStatus = await saveSubagentStatus(session, {
       ...status.status,
-      status: "failed",
+      status: cancelled ? "cancelled" : "failed",
       updated_at: new Date().toISOString(),
+      heartbeat_at: new Date().toISOString(),
       a2a_transcript: saved.file,
       error: {
-        code: "subagent_runtime_error",
+        code: cancelled ? "subagent_cancelled" : timeout ? "subagent_timeout" : "subagent_runtime_error",
         message
       }
     });
+    await emitSessionEvent(root, session, cancelled ? "subagent.cancelled" : "subagent.error", cancelled ? `Cancelled subagent ${profile.name}` : `Failed subagent ${profile.name}`, {
+      status: failedStatus.file,
+      a2a: saved.file,
+      error: failedStatus.status.error
+    });
+    await appendAuditEvent(root, {
+      type: cancelled ? "subagent.cancelled" : "subagent.error",
+      actor: profile.name,
+      subject: task.name,
+      decision: cancelled ? "cancelled" : "failed",
+      details: {
+        run_id: session.id,
+        worker: options.worker ?? "task",
+        error: failedStatus.status.error
+      }
+    });
+    await saveSession(session);
     throw error;
+  } finally {
+    stopCancellationWatch();
   }
   return saveSession(session);
 }
@@ -351,6 +454,7 @@ export async function cancelSubagentStatus(file: string, reason = "cancelled by 
     ...status,
     status: "cancelled",
     updated_at: new Date().toISOString(),
+    cancel_requested_at: new Date().toISOString(),
     error: {
       code: "subagent_cancelled",
       message: reason
@@ -376,6 +480,7 @@ function createSubagentStatus(session: CyborgSession, agent: string, task: strin
     status: "starting",
     created_at: now,
     updated_at: now,
+    heartbeat_at: now,
     parent_session_id: session.id,
     pid: process.pid
   };
@@ -393,7 +498,7 @@ async function assertSubagentConcurrency(root: string, profile: AgentProfile) {
       const file = path.join(runsDir, entry.name, "subagent-status.json");
       try {
         const status = await loadSubagentStatus(file);
-        if (status.status === "starting" || status.status === "running") {
+        if ((status.status === "starting" || status.status === "running") && isLiveSubagentStatus(status, profile.timeout_ms)) {
           running += 1;
         }
       } catch {
@@ -411,15 +516,55 @@ async function assertSubagentConcurrency(root: string, profile: AgentProfile) {
   }
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timeout: NodeJS.Timeout | undefined;
+function isLiveSubagentStatus(status: SubagentStatus, timeoutMs: number) {
+  const timestamp = status.heartbeat_at ?? status.updated_at;
+  const staleAfterMs = Math.max(timeoutMs + 60_000, 5 * 60_000);
+  if (Date.now() - new Date(timestamp).getTime() > staleAfterMs) {
+    return false;
+  }
+  if (status.pid && !isProcessAlive(status.pid)) {
+    return false;
+  }
+  return true;
+}
+
+function isProcessAlive(pid: number) {
   try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
-      })
-    ]);
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function watchSubagentCancellation(statusFile: string, controller: AbortController) {
+  const interval = setInterval(async () => {
+    try {
+      const status = await loadSubagentStatus(statusFile);
+      if (status.status === "cancelled") {
+        controller.abort(new Error(status.error?.message ?? "Subagent cancelled."));
+      }
+    } catch {
+      // Ignore transient status read errors during startup/shutdown.
+    }
+  }, 250);
+  return () => clearInterval(interval);
+}
+
+async function withDeadline<T>(promise: Promise<T>, timeoutMs: number, controller: AbortController, message: string): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  let timedOut = false;
+  try {
+    timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort(new Error(message));
+    }, timeoutMs);
+    return await promise;
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(message);
+    }
+    throw error;
   } finally {
     if (timeout) {
       clearTimeout(timeout);

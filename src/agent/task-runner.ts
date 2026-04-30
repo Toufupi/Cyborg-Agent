@@ -12,12 +12,25 @@ export interface TaskRunOptions {
   parentSessionId?: string;
   agent?: string;
   policy?: CyborgPolicy;
+  signal?: AbortSignal;
+  onProgress?: (progress: {
+    phase: "starting" | "step" | "completed";
+    current_step?: string;
+    completed_steps: number;
+    total_steps: number;
+  }) => void | Promise<void>;
 }
 
 export async function runTask(name: string, root = process.cwd(), options: TaskRunOptions = {}) {
   const task = await loadTask(name, root);
   const session = await createSession(root, task.name);
   const env = cyborgEnv(root, session.id);
+  throwIfAborted(options.signal);
+  await options.onProgress?.({
+    phase: "starting",
+    completed_steps: 0,
+    total_steps: task.steps.length
+  });
   await emitSessionEvent(root, session, "task.start", `Started task ${task.name}`, {
     task,
     parentSessionId: options.parentSessionId,
@@ -25,7 +38,14 @@ export async function runTask(name: string, root = process.cwd(), options: TaskR
   });
 
   let previousResult: unknown;
-  for (const step of task.steps) {
+  for (const [index, step] of task.steps.entries()) {
+    throwIfAborted(options.signal);
+    await options.onProgress?.({
+      phase: "step",
+      current_step: step.name,
+      completed_steps: index,
+      total_steps: task.steps.length
+    });
     await emitSessionEvent(root, session, "step.start", `Running ${step.name}`, step);
     if (options.policy) {
       const decision = checkTool(options.policy, step.tool);
@@ -54,6 +74,7 @@ export async function runTask(name: string, root = process.cwd(), options: TaskR
       cwd: root,
       workspaceRoot: root,
       policy: options.policy,
+      signal: options.signal,
       requester: {
         agent: options.agent,
         session_id: session.id
@@ -69,8 +90,20 @@ export async function runTask(name: string, root = process.cwd(), options: TaskR
     }
   }
 
+  throwIfAborted(options.signal);
+  await options.onProgress?.({
+    phase: "completed",
+    completed_steps: task.steps.length,
+    total_steps: task.steps.length
+  });
   await emitSessionEvent(root, session, "task.end", `Finished task ${task.name}`);
   return saveSession(session);
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw new Error("Task aborted.");
+  }
 }
 
 function extractA2C2AResult(stdout: string) {

@@ -24,7 +24,7 @@ import { doctorCyborg } from "../doctor.js";
 import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
 import { smokeModel } from "../model-client.js";
 import { readAuditEvents } from "../audit.js";
-import { runDueTasks, watchDueTasks } from "../scheduler.js";
+import { loadSchedulerState, runDueTasks, watchDueTasks } from "../scheduler.js";
 
 const program = new Command();
 
@@ -360,12 +360,18 @@ task.command("history")
 task.command("schedule")
   .option("--once", "Run due scheduled tasks once and exit")
   .option("--watch", "Keep polling scheduled tasks")
+  .option("--status", "Print scheduler daemon and task state")
   .option("--interval <ms>", "Watch poll interval in milliseconds", "60000")
   .description("Run due scheduled tasks from .cyborg/tasks.")
-  .action(async (options: { once?: boolean; watch?: boolean; interval: string }) => {
+  .action(async (options: { once?: boolean; watch?: boolean; status?: boolean; interval: string }) => {
+    if (options.status) {
+      const state = await loadSchedulerState(process.cwd());
+      console.log(JSON.stringify({ ok: true, scheduler: state }, null, 2));
+      return;
+    }
     if (options.watch) {
       await watchDueTasks(process.cwd(), Number.parseInt(options.interval, 10), undefined, (result) => {
-        if (result.runs.length > 0) {
+        if (result.runs.length > 0 || result.errors.length > 0) {
           console.log(JSON.stringify({ ok: true, scheduler: result }, null, 2));
         }
       });

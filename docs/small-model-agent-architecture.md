@@ -290,7 +290,22 @@ Task config shape:
 }
 ```
 
-The scheduler should store run results and errors in `.cyborg/runs`.
+The scheduler stores run results in `.cyborg/runs`, keeps task state under `.cyborg/scheduler/state.json`, and writes scheduler audit events to `.cyborg/audit/events.jsonl`.
+
+Current daemon state:
+
+```json
+{
+  "daemon": {
+    "status": "watching",
+    "pid": 1234,
+    "interval_ms": 60000,
+    "started_at": "2026-04-30T00:00:00.000Z",
+    "updated_at": "2026-04-30T00:00:00.000Z",
+    "last_tick_at": "2026-04-30T00:00:00.000Z"
+  }
+}
+```
 
 ## Agent Loop For Scheduled Research
 
@@ -357,6 +372,6 @@ cyborg audit list
 cyborg tui
 ```
 
-The current `research-progress` demo uses Page-Generator-CLI to prove the task/config/tool/run-log loop. Hooks, agent profiles, A2A transcripts, subagent lifecycle status, policy checks, approvals, runtime isolation, and a model-driven planner/repair loop are implemented at v0.1 level.
+The current `research-progress` demo uses Page-Generator-CLI to prove the task/config/tool/run-log loop. Hooks, agent profiles, A2A transcripts, subagent lifecycle status, worker heartbeat/progress, cancellation, timeout aborts, policy checks, approvals, runtime isolation, scheduler daemon state, audit events, and a model-driven planner/repair loop are implemented at v0.1 level.
 
 The next tool should be `research-fetcher`, which will turn the static demo payload into real source collection.

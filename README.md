@@ -407,7 +407,7 @@ npm run cyborg -- agent transcript .cyborg\runs\agent-researcher-...\run.json
 npm run cyborg -- agent status .cyborg\runs\agent-researcher-...\run.json
 ```
 
-This is the first lightweight subagent layer. It does not yet create independent LLM workers; it constrains what a named agent profile may run, records a parent `agent-*` run, delegates deterministic task execution through A2C2A, and records parent/subagent communication through A2A.
+This is the first lightweight subagent worker layer. It constrains what a named agent profile may run, records a parent `agent-*` run, delegates deterministic task execution or planner execution, and records parent/subagent communication through A2A. It stays pure Node: no Docker is required.
 
 Each subagent run also writes lifecycle state:
 
@@ -424,6 +424,8 @@ Status values:
 - `cancelled`
 
 The status file is intentionally separate from `run.json` and `a2a.json`: `run.json` is the event log, `a2a.json` is the parent/subagent transcript, and `subagent-status.json` is the latest lifecycle snapshot that schedulers or future TUI views can poll cheaply.
+
+Runtime state includes `worker`, `heartbeat_at`, `progress`, `pid`, and `cancel_requested_at`. Task workers emit step-level `progress` A2A messages. `agent cancel <run>` marks the status as cancelled; the worker loop polls that file and aborts the running tool process. Timeouts also abort the active invocation and finish with `subagent_timeout`.
 
 ## A2A Protocol
 
@@ -575,6 +577,7 @@ Current enforcement:
 - allow/deny decisions during task execution are written to run history as `policy.allow` or `policy.deny`.
 - `approvals.mode: "ask"` creates a pending approval instead of executing denied commands;
 - `allow-once` approvals are bound to an invocation fingerprint and consumed after one use.
+- subagent start/end/error/cancel, scheduler daemon, scheduler task, and policy invocation decisions are written to `.cyborg/audit/events.jsonl`.
 
 Security modes:
 
@@ -582,7 +585,7 @@ Security modes:
 - `restricted`: reserved for a stricter future mode with explicit read/write/network scopes.
 - `bypass-all`: trusted local debugging mode. Skips policy guards and passes env through. Do not use for untrusted tools, scheduled jobs, or shared machines.
 
-The built-in `default` policy is intentionally conservative for command execution: Node package entrypoints are allowed, broad shell entrypoints are denied. Current sandboxing is a Cyborg guard layer, not an OS/container isolation boundary. Future work should add stronger process/container sandboxing before untrusted tools are supported.
+The built-in `default` policy is intentionally conservative for command execution: Node package entrypoints are allowed, broad shell entrypoints are denied. Current sandboxing is a Cyborg guard layer, not an OS/container isolation boundary. Docker is not part of the required runtime; a stronger OS/container sandbox can be added later only for untrusted tools.
 
 The Agent loop becomes:
 

@@ -18,6 +18,7 @@ import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolIn
 import { runAgentGoal, runAgentGoalStream, type AgentRunEvent } from "./planner.js";
 import { runA2C2ARequest, runTask } from "./task-runner.js";
 import { buildToolIndex } from "./tool-context.js";
+import { maybeAutoCompactChatMemory, type AutoCompactResult } from "./chat-memory.js";
 import type { ModelClient } from "../model-client.js";
 
 export interface ShellState {
@@ -25,6 +26,7 @@ export interface ShellState {
   session: CyborgSession;
   resumed: boolean;
   modelClient?: ModelClient;
+  lastCompaction?: AutoCompactResult;
 }
 
 export interface ShellResult {
@@ -164,6 +166,7 @@ export async function executeShellLine(line: string, state: ShellState): Promise
   try {
     const result = await dispatchLine(trimmed, state);
     addEvent(state.session, "chat.assistant", result.output, { exit: result.exit ?? false });
+    await maybeCompactState(state);
     await saveSession(state.session);
     return result;
   } catch (error) {
@@ -205,6 +208,7 @@ export async function* executeShellLineStream(line: string, state: ShellState): 
     if (classifyShellLine(trimmed).kind !== "planner") {
       const result = await dispatchLine(trimmed, state);
       addEvent(state.session, "chat.assistant", result.output, { exit: result.exit ?? false });
+      await maybeCompactState(state);
       await saveSession(state.session);
       yield { type: "shell.command.result", output: result.output, exit: result.exit };
       return result;
@@ -229,6 +233,7 @@ export async function* executeShellLineStream(line: string, state: ShellState): 
       `run: ${result.file}`
     ].filter(Boolean).join("\n");
     addEvent(state.session, "chat.assistant", outputText, { exit: false });
+    await maybeCompactState(state);
     await saveSession(state.session);
     yield { type: "shell.agent.result", output: outputText, session: result.session, file: result.file };
     return { output: outputText };
@@ -239,6 +244,14 @@ export async function* executeShellLineStream(line: string, state: ShellState): 
     await saveSession(state.session);
     yield { type: "shell.error", output: outputText };
     return { output: outputText };
+  }
+}
+
+async function maybeCompactState(state: ShellState) {
+  const result = await maybeAutoCompactChatMemory(state.root, state.session, estimateSessionContextPressure(state.session));
+  state.lastCompaction = result;
+  if (result.compacted) {
+    addEvent(state.session, "chat.compact", result.reason, result);
   }
 }
 
@@ -418,6 +431,7 @@ function shellSessionSummary(state: ShellState) {
     resumed: state.resumed,
     events: state.session.events.length,
     context_pressure: contextPressureJson(estimateSessionContextPressure(state.session)),
+    last_compaction: state.lastCompaction ?? null,
     compact_context: context
   };
 }

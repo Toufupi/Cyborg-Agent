@@ -12,13 +12,16 @@ import { loadPolicy } from "../policy.js";
 import type { SessionEvent } from "../session.js";
 import { createShellState, executeShellLineStream, type ShellState, type ShellStreamEvent, type StartShellOptions } from "../agent/shell.js";
 import type { AgentPlan, AgentRunEvent } from "../agent/planner.js";
+import { listTools } from "../registry.js";
+import { listTasks } from "../task.js";
+import { listAgentProfiles } from "../agents.js";
 
 interface ChatAppProps extends StartShellOptions {
   root?: string;
 }
 
 type ChatRow =
-  | { id: string; kind: "system" | "user" | "assistant" | "command" | "tool" | "error"; text: string; detail?: string; color?: string };
+  | { id: string; kind: "system" | "user" | "assistant" | "command" | "tool" | "error"; text: string; detail?: string; color?: string; step?: number };
 
 interface ChatStatus {
   session: string;
@@ -41,6 +44,9 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
   const [input, setInput] = useState("");
   const [rows, setRows] = useState<ChatRow[]>([]);
   const [busy, setBusy] = useState(false);
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number | undefined>();
+  const [completionHint, setCompletionHint] = useState("");
   const [status, setStatus] = useState<ChatStatus>({
     session: "starting",
     resumed: false,
@@ -70,6 +76,7 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
         return;
       }
       setState(shellState);
+      setHistory(historyFromSession(shellState.session.events));
       setRows([
         ...rowsFromSession(shellState.session.events),
         makeRow({
@@ -100,6 +107,39 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
     if (key.ctrl && _input === "c") {
       exit();
     }
+    if (state && !busy && key.upArrow) {
+      const nextIndex = historyIndex === undefined ? history.length - 1 : Math.max(0, historyIndex - 1);
+      if (history[nextIndex]) {
+        setInput(history[nextIndex]);
+        setHistoryIndex(nextIndex);
+      }
+      return;
+    }
+    if (state && !busy && key.downArrow) {
+      if (historyIndex === undefined) {
+        return;
+      }
+      const nextIndex = historyIndex + 1;
+      if (nextIndex >= history.length) {
+        setInput("");
+        setHistoryIndex(undefined);
+        return;
+      }
+      setInput(history[nextIndex] ?? "");
+      setHistoryIndex(nextIndex);
+      return;
+    }
+    if (state && !busy && key.tab) {
+      void completeInput(input, state).then((completed) => {
+        if (!completed) {
+          setCompletionHint("no completion");
+          return;
+        }
+        setInput(completed);
+        setCompletionHint(completed === input ? "already complete" : `completed ${completed}`);
+      });
+      return;
+    }
     if (!state || approvals.length === 0 || busy || input.length > 0) {
       return;
     }
@@ -119,6 +159,9 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
       return;
     }
     setInput("");
+    setCompletionHint("");
+    setHistory((current) => [...current.filter((item) => item !== line), line].slice(-50));
+    setHistoryIndex(undefined);
     setBusy(true);
     try {
       const stream = executeShellLineStream(line, state);
@@ -148,6 +191,7 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
         <Text color="gray"> {busy ? "working" : "ready"} </Text>
         <TextInput value={input} onChange={setInput} onSubmit={submit} placeholder={busy ? "waiting for agent..." : "ask, /help, /tools, /exit"} />
       </Box>
+      {completionHint ? <Text color="gray">{completionHint}</Text> : null}
       <ChatStatusLine status={{ ...status, busy }} />
     </Box>
   );
@@ -243,10 +287,7 @@ function appendStreamEvent(event: ShellStreamEvent, setRows: React.Dispatch<Reac
     return;
   }
   if (event.type === "shell.agent.event") {
-    const row = rowFromAgentEvent(event.event);
-    if (row) {
-      pushRow(setRows, row);
-    }
+    appendAgentEventRow(event.event, setRows);
     return;
   }
   if (event.type === "shell.agent.result") {
@@ -258,12 +299,32 @@ function appendStreamEvent(event: ShellStreamEvent, setRows: React.Dispatch<Reac
   }
 }
 
+function appendAgentEventRow(event: AgentRunEvent, setRows: React.Dispatch<React.SetStateAction<ChatRow[]>>) {
+  const row = rowFromAgentEvent(event);
+  if (!row) {
+    return;
+  }
+  if (row.step === undefined) {
+    pushRow(setRows, row);
+    return;
+  }
+  setRows((current) => {
+    const index = current.findIndex((item) => item.step === row.step);
+    if (index < 0) {
+      return [...current, makeRow(row, current.length)];
+    }
+    const next = [...current];
+    next[index] = mergeStepRow(next[index]!, row);
+    return next;
+  });
+}
+
 function rowFromAgentEvent(event: AgentRunEvent): Omit<ChatRow, "id"> | undefined {
   if (event.type === "agent.start") {
     return { kind: "system", text: `planner started on ${event.model}`, detail: event.goal };
   }
   if (event.type === "agent.step.plan") {
-    return { kind: "tool", text: `${logSymbols.info} step ${event.step}: ${describePlan(event.plan)}`, detail: event.plan.reason };
+    return { kind: "tool", step: event.step, text: `${logSymbols.info} step ${event.step}: ${describePlan(event.plan)}`, detail: `plan: ${event.plan.reason}` };
   }
   if (event.type === "agent.repair") {
     return {
@@ -274,10 +335,22 @@ function rowFromAgentEvent(event: AgentRunEvent): Omit<ChatRow, "id"> | undefine
   }
   if (event.type === "agent.step.result") {
     const color = event.result.ok ? "green" : "red";
-    return { kind: event.result.ok ? "tool" : "error", text: `${event.result.ok ? logSymbols.success : logSymbols.error} ${event.plan.kind}`, detail: compactOutput(event.result.output || JSON.stringify(event.result.observation)), color };
+    return {
+      kind: event.result.ok ? "tool" : "error",
+      step: event.step,
+      text: `${event.result.ok ? logSymbols.success : logSymbols.error} step ${event.step}: ${describePlan(event.plan)}`,
+      detail: `result: ${compactOutput(event.result.output || JSON.stringify(event.result.observation))}`,
+      color
+    };
   }
   if (event.type === "agent.step.evaluation") {
-    return { kind: "system", text: `state ${event.decision}`, detail: event.reason };
+    return {
+      kind: event.decision === "stop" ? "error" : "tool",
+      step: event.step,
+      text: `step ${event.step}: ${event.decision}`,
+      detail: `state: ${event.reason}`,
+      color: event.decision === "stop" ? "red" : event.decision === "final" ? "green" : "yellow"
+    };
   }
   if (event.type === "agent.error") {
     return { kind: "error", text: event.error.message, detail: event.error.type };
@@ -288,11 +361,31 @@ function rowFromAgentEvent(event: AgentRunEvent): Omit<ChatRow, "id"> | undefine
   return undefined;
 }
 
+function mergeStepRow(existing: ChatRow, incoming: Omit<ChatRow, "id">): ChatRow {
+  const details = [existing.detail, incoming.detail].filter(Boolean).join(" | ");
+  return {
+    ...existing,
+    kind: incoming.kind,
+    text: incoming.text,
+    detail: details ? compactOutput(details, 900) : undefined,
+    color: incoming.color ?? existing.color,
+    step: incoming.step
+  };
+}
+
 function rowsFromSession(events: SessionEvent[]) {
   return events
     .filter((event) => ["chat.user", "chat.assistant", "chat.error"].includes(event.type))
     .slice(-12)
     .map((event) => makeRow(rowFromSessionEvent(event)));
+}
+
+function historyFromSession(events: SessionEvent[]) {
+  return events
+    .filter((event) => event.type === "chat.user")
+    .map((event) => event.message.trim())
+    .filter(Boolean)
+    .slice(-50);
 }
 
 function rowFromSessionEvent(event: SessionEvent): Omit<ChatRow, "id"> {
@@ -378,6 +471,71 @@ async function decideApproval(
   });
   await refreshApprovals(state, setApprovals);
   await refreshStatus(state, setStatus, false);
+}
+
+async function completeInput(value: string, state: ShellState) {
+  const commands = [
+    "/tools",
+    "/tasks",
+    "/hooks",
+    "/agents",
+    "/agent-runs",
+    "/policies",
+    "/approvals",
+    "/context",
+    "/session",
+    "/doctor",
+    "/model",
+    "/run",
+    "/history",
+    "/call",
+    "/tool-help",
+    "/tool-doctor",
+    "/tool-env",
+    "/tool-install",
+    "/agent-run",
+    "/agent-status",
+    "/a2a",
+    "/allow",
+    "/deny",
+    "/exit"
+  ];
+  const trimmed = value.trimStart();
+  if (!trimmed.startsWith("/")) {
+    return undefined;
+  }
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1 && !value.endsWith(" ")) {
+    return firstCompletion(trimmed, commands);
+  }
+  const [command, partial = ""] = parts;
+  if (command === "/run") {
+    return completeSecondArg(value, partial, (await listTasks(state.root)).map(({ task }) => task.name));
+  }
+  if (["/call", "/tool-help", "/tool-doctor", "/tool-env", "/tool-install"].includes(command)) {
+    return completeSecondArg(value, partial, (await listTools(state.root)).map(({ registration }) => registration.name));
+  }
+  if (["/agent-run"].includes(command)) {
+    return completeSecondArg(value, partial, (await listAgentProfiles(state.root)).map(({ profile }) => profile.name));
+  }
+  return undefined;
+}
+
+function firstCompletion(partial: string, candidates: string[]) {
+  const match = candidates.find((candidate) => candidate.startsWith(partial));
+  return match ? `${match} ` : undefined;
+}
+
+function completeSecondArg(value: string, partial: string, candidates: string[]) {
+  const match = candidates.find((candidate) => candidate.startsWith(partial));
+  if (!match) {
+    return undefined;
+  }
+  return value.replace(new RegExp(`${escapeRegExp(partial)}$`), match);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function shortId(value: string) {

@@ -148,6 +148,7 @@ describe("interactive shell", () => {
       expect(session.output).toContain("\"resumed\": true");
       expect(session.output).toContain("/tools");
       expect(session.output).toContain("context_pressure");
+      expect(session.output).toContain("last_compaction");
     });
   });
 

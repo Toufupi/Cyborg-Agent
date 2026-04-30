@@ -191,6 +191,18 @@ Still valuable later:
 - richer permission cards per scope, especially shell command/network/file write;
 - session picker when `cyborg chat --resume` is called without a path.
 
+## Memory Compaction Policy
+
+Automatic memory should be conservative. Cyborg should not silently persist full chat transcripts when context pressure gets high. The safe default is:
+
+- save only a short operational summary;
+- mark it with `auto-compact`;
+- store the source session id and compaction boundary;
+- keep the newest turns in live context;
+- make the saved memory visible in `/session` and normal memory commands.
+
+This gives the small planner useful continuity without turning memory into an unbounded transcript archive.
+
 ## What Not To Borrow Yet
 
 - Full virtualized scrollback.

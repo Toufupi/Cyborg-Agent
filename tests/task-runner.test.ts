@@ -103,4 +103,43 @@ describe("task runner", () => {
       expect(run.events.at(-1)?.type).toBe("task.end");
     });
   });
+
+  it("passes the previous A2C2A result into the next step", async () => {
+    await withTempWorkspace(async (root) => {
+      const scriptPath = path.join(root, "chain-tool.mjs");
+      await writeFile(scriptPath, [
+        "let raw = '';",
+        "process.stdin.on('data', chunk => { raw += chunk; });",
+        "process.stdin.on('end', () => {",
+        "  const request = JSON.parse(raw);",
+        "  if (request.action === 'first') console.log(JSON.stringify({ ok: true, result: { title: 'From first' } }));",
+        "  else console.log(JSON.stringify({ ok: true, result: { received: request.input.title } }));",
+        "});"
+      ].join("\n"), "utf8");
+      const toolFile = await writeJson(root, "tool.json", fakeToolRegistration({
+        name: "chain-tool",
+        discovery: {
+          strategy: "static",
+          a2c2a: { command: process.execPath, args: [scriptPath] }
+        }
+      }));
+      await addTool(toolFile, root);
+      const taskFile = await writeJson(root, "task.json", {
+        name: "chain-task",
+        goal: "Chain step results.",
+        steps: [
+          { name: "first", tool: "chain-tool", action: "first", input: {} },
+          { name: "second", tool: "chain-tool", action: "second", inputFromPrevious: true, input: {} }
+        ]
+      });
+      await addTask(taskFile, root);
+
+      const result = await runTask("chain-task", root);
+      const run = JSON.parse(await readFile(result.file, "utf8")) as {
+        events: Array<{ type: string; data?: { stdout?: string } }>;
+      };
+
+      expect(run.events.filter((event) => event.type === "step.ok").at(-1)?.data?.stdout).toContain("From first");
+    });
+  });
 });

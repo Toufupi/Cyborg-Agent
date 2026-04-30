@@ -49,6 +49,26 @@ export class OpenAICompatibleModelClient implements ModelClient {
   }
 }
 
+export async function smokeModel(profile: ModelProfile, client: ModelClient = new OpenAICompatibleModelClient()) {
+  const started = Date.now();
+  const result = await client.completeJson(profile, [
+    {
+      role: "system",
+      content: "Return exactly this JSON object and no markdown: {\"ok\":true,\"kind\":\"model_smoke\"}"
+    },
+    {
+      role: "user",
+      content: "model smoke test"
+    }
+  ]);
+  return {
+    ok: typeof result === "object" && result !== null && !Array.isArray(result) && result.ok === true,
+    model: profile.model,
+    latency_ms: Date.now() - started,
+    result
+  };
+}
+
 export function parseJsonContent(content: string): JsonValue {
   const trimmed = content.trim();
   try {

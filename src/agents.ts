@@ -13,6 +13,7 @@ import { loadTask } from "./task.js";
 import { emitSessionEvent } from "./hooks.js";
 import { createSession, saveSession, type CyborgSession } from "./session.js";
 import { runTask } from "./agent/task-runner.js";
+import { runAgentGoal } from "./agent/planner.js";
 import { assertPolicyDecision, checkTask, checkTool, loadPolicy } from "./policy.js";
 
 export const AgentProfileSchema = z.object({
@@ -87,7 +88,7 @@ export async function listAgentProfiles(root = process.cwd()) {
   }
 }
 
-export async function runSubagent(profileName: string, taskName: string, root = process.cwd()) {
+export async function runSubagent(profileName: string, taskName: string, root = process.cwd(), options: { worker?: "task" | "planner" } = {}) {
   const profile = await loadAgentProfile(profileName, root);
   const task = await loadTask(taskName, root);
   assertProfileAllowsTask(profile, taskName);
@@ -146,11 +147,19 @@ export async function runSubagent(profileName: string, taskName: string, root = 
       updated_at: new Date().toISOString(),
       a2a_transcript: transcriptPath(session)
     });
-    const taskRun = await runTask(taskName, root, {
-      parentSessionId: session.id,
-      agent: profile.name,
-      policy
-    });
+    const workerMode = options.worker ?? "task";
+    const taskRun = workerMode === "planner"
+      ? await runAgentGoal([
+        profile.instructions,
+        `Task: ${task.name}`,
+        `Goal: ${task.goal}`,
+        `Allowed tools: ${profile.allowed_tools.join(", ") || "profile default"}`
+      ].filter(Boolean).join("\n"), root)
+      : await runTask(taskName, root, {
+        parentSessionId: session.id,
+        agent: profile.name,
+        policy
+      });
     appendA2AMessage(transcript, createA2AMessage({
       conversationId,
       from: child,

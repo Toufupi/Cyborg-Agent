@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { runAgentGoal } from "../src/agent/planner.js";
@@ -108,6 +109,45 @@ describe("agent planner loop", () => {
       expect(result.output).toContain("\"Fixed\"");
       expect(run.events.some((event) => event.type === "agent.repair_plan")).toBe(true);
       expect(modelClient.calls).toBe(2);
+    });
+  });
+
+  it("falls back to the large model after repeated repair failure", async () => {
+    await withTempWorkspace(async (root) => {
+      await mkdir(path.join(root, ".cyborg"), { recursive: true });
+      await writeFile(path.join(root, ".cyborg", "config.json"), JSON.stringify({
+        models: {
+          small: { base_url: "http://small.local/v1", model: "small", role: "small" },
+          large: { base_url: "http://large.local/v1", model: "large", role: "large" },
+          routing: { mode: "auto", fallback_on: ["max_retries_exceeded"] }
+        }
+      }), "utf8");
+      const scriptPath = path.join(root, "always-fails.mjs");
+      await writeFile(scriptPath, [
+        "process.stdin.resume();",
+        "process.stdin.on('end', () => {",
+        " console.log(JSON.stringify({ ok: false, error: { type: 'input_validation_error', message: 'still bad' } }));",
+        " process.exit(1);",
+        "});"
+      ].join("\n"), "utf8");
+      const toolFile = await writeJson(root, "tool.json", fakeToolRegistration({
+        name: "bad-tool",
+        discovery: {
+          strategy: "static",
+          a2c2a: { command: process.execPath, args: [scriptPath] }
+        }
+      }));
+      await addTool(toolFile, root);
+      const modelClient = new FakeModelClient([
+        { kind: "call_tool", tool: "bad-tool", request: { a2c2a: "0.1", action: "x", input: {} } },
+        { kind: "call_tool", tool: "bad-tool", request: { a2c2a: "0.1", action: "x", input: { retry: 1 } } },
+        { kind: "answer", message: "Escalated and stopped.", confidence: 0.5, reason: "large model fallback" }
+      ]);
+
+      const result = await runAgentGoal("try bad tool", root, { modelClient, maxRepairAttempts: 2 });
+
+      expect(result.output).toContain("Escalated");
+      expect(result.attempts.some((attempt) => attempt.model === "large")).toBe(true);
     });
   });
 });

@@ -24,6 +24,7 @@ export async function runTask(name: string, root = process.cwd(), options: TaskR
     agent: options.agent
   });
 
+  let previousResult: unknown;
   for (const step of task.steps) {
     await emitSessionEvent(root, session, "step.start", `Running ${step.name}`, step);
     if (options.policy) {
@@ -38,10 +39,11 @@ export async function runTask(name: string, root = process.cwd(), options: TaskR
       continue;
     }
     const preparedInvocation = prepareToolInvocation(registration, invocation, root);
+    const stepInput = step.inputFromPrevious ? previousResult ?? step.input : step.input;
     const request = {
       a2c2a: "0.1",
       action: step.action,
-      input: step.input,
+      input: stepInput,
       meta: {
         request_id: `${session.id}-${step.name}`
       }
@@ -62,10 +64,22 @@ export async function runTask(name: string, root = process.cwd(), options: TaskR
       stdout: result.stdout,
       stderr: result.stderr
     });
+    if (result.code === 0) {
+      previousResult = extractA2C2AResult(result.stdout) ?? previousResult;
+    }
   }
 
   await emitSessionEvent(root, session, "task.end", `Finished task ${task.name}`);
   return saveSession(session);
+}
+
+function extractA2C2AResult(stdout: string) {
+  try {
+    const parsed = JSON.parse(stdout) as { ok?: boolean; result?: unknown };
+    return parsed.ok ? parsed.result : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function runA2C2ARequest(toolName: string, requestFile: string, root = process.cwd()) {

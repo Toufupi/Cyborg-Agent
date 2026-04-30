@@ -1,0 +1,33 @@
+{
+  "schema": "a2c2a.tool-registration.v0.1",
+  "name": "research-fetcher",
+  "version": "0.1.0",
+  "type": "cli",
+  "description": "Fetch and normalize lightweight research progress items for scheduled reports.",
+  "runtime": {
+    "type": "node",
+    "node": ">=20",
+    "cwd": "tools/research-fetcher",
+    "package_manager": "npm",
+    "install_strategy": "external_repo",
+    "isolated": true,
+    "requires_cyborg_shell": true
+  },
+  "discovery": {
+    "strategy": "static",
+    "primary": "A2C2A research.fetch endpoint.",
+    "a2c2a": {
+      "command": "node",
+      "args": ["src/index.mjs"]
+    },
+    "help": {
+      "command": "node",
+      "args": ["src/index.mjs"]
+    }
+  },
+  "capabilities": {
+    "domains": ["research", "news"],
+    "categories": ["fetch", "deduplicate", "normalize"],
+    "outputs": ["json"]
+  }
+}

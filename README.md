@@ -110,9 +110,12 @@ npm run cyborg -- config
 npm run cyborg -- env
 npm run cyborg -- doctor
 npm run cyborg -- ask "run the research progress report"
+npm run cyborg -- model --smoke
 npm run cyborg -- context
 npm run cyborg -- model --reason fallback
 npm run cyborg -- tool list
+npm run cyborg -- tool create my-tool --description "A reusable A2C2A code tool"
+npm run cyborg -- tool add examples\research-fetcher-tool.json
 npm run cyborg -- tool info page-generator-cli
 npm run cyborg -- tool help page-generator-cli
 npm run cyborg -- tool help page-generator-cli render
@@ -128,6 +131,7 @@ npm run cyborg -- policy show
 npm run cyborg -- approval list
 npm run cyborg -- agent list
 npm run cyborg -- agent run researcher research-progress
+npm run cyborg -- agent run researcher research-progress --worker planner
 ```
 
 Running `npm run cyborg` with no command opens the persistent interactive shell:
@@ -206,6 +210,27 @@ or:
 ```
 
 This keeps the agent small-model-friendly: the model plans in a constrained JSON protocol, and Cyborg executes only known plan types.
+
+Implemented v0.2 agent pieces:
+
+- model smoke check through `cyborg model --smoke`;
+- multi-attempt A2C2A repair loop with attempt history;
+- automatic large-model fallback when routing policy matches repeated repair failure;
+- local Node tool scaffolding through `cyborg tool create`;
+- built-in `research-fetcher` A2C2A tool scaffold for research/news report pipelines;
+- subagent planner worker mode through `cyborg agent run <agent> <task> --worker planner`.
+
+Register the built-in research fetcher:
+
+```powershell
+npm run cyborg -- tool add examples\research-fetcher-tool.json
+```
+
+Call it:
+
+```powershell
+'{"a2c2a":"0.1","action":"research.fetch","input":{"topic":"agent tools","sources":["sample"],"limit":2}}' | npm run cyborg -- tool call research-fetcher
+```
 
 ## Tool Runtime Isolation
 

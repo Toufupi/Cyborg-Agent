@@ -15,7 +15,8 @@ export const TaskSchema = z.object({
     name: z.string().min(1),
     tool: z.string().min(1),
     action: z.string().min(1),
-    input: z.record(z.string(), z.unknown()).default({})
+    input: z.record(z.string(), z.unknown()).default({}),
+    inputFromPrevious: z.boolean().default(false)
   })).default([])
 });
 

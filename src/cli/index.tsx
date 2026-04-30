@@ -22,6 +22,8 @@ import { addPolicy, listPolicies, loadPolicy } from "../policy.js";
 import { listApprovals, resolveApproval } from "../approvals.js";
 import { doctorCyborg } from "../doctor.js";
 import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
+import { smokeModel } from "../model-client.js";
+import { createNodeTool } from "../tool-creator.js";
 
 const program = new Command();
 
@@ -57,10 +59,18 @@ program.command("config")
 
 program.command("model")
   .option("--reason <reason>", "Route reason: default, fallback, tool_creation, repair_failed, manual", "default")
+  .option("--smoke", "Call the selected OpenAI-compatible model and expect a JSON response.")
   .description("Print selected model profile for a route reason.")
-  .action(async (options: { reason: ModelRouteReason }) => {
+  .action(async (options: { reason: ModelRouteReason; smoke?: boolean }) => {
     const config = await loadConfig();
-    console.log(JSON.stringify({ ok: true, model: chooseModel(config, options.reason) }, null, 2));
+    const model = chooseModel(config, options.reason);
+    if (options.smoke) {
+      const smoke = await smokeModel(model);
+      console.log(JSON.stringify({ ok: smoke.ok, smoke }, null, 2));
+      process.exitCode = smoke.ok ? 0 : 1;
+      return;
+    }
+    console.log(JSON.stringify({ ok: true, model }, null, 2));
   });
 
 program.command("env")
@@ -130,6 +140,20 @@ Examples:
   .action(async (registrationFile: string, options: { as?: string }) => {
     const result = await addTool(registrationFile, process.cwd(), options.as);
     console.log(JSON.stringify({ ok: true, output: result.output, name: result.registration.name }, null, 2));
+  });
+
+tool.command("create")
+  .argument("<name>", "New semantic tool name")
+  .option("--description <text>", "Short tool description")
+  .option("--category <name>", "Capability category", "generated")
+  .description("Create a local Node A2C2A tool scaffold under tools/<name>.")
+  .action(async (name: string, options: { description?: string; category: string }) => {
+    const result = await createNodeTool(process.cwd(), {
+      name,
+      description: options.description,
+      category: options.category
+    });
+    console.log(JSON.stringify({ ok: true, tool: result }, null, 2));
   });
 
 tool.command("list")
@@ -386,9 +410,10 @@ agent.command("list")
 agent.command("run")
   .argument("<name>", "Agent profile name")
   .argument("<task>", "Task name")
+  .option("--worker <mode>", "Worker mode: task or planner", "task")
   .description("Run a task through a constrained subagent profile.")
-  .action(async (name: string, taskName: string) => {
-    const result = await runSubagent(name, taskName);
+  .action(async (name: string, taskName: string, options: { worker: "task" | "planner" }) => {
+    const result = await runSubagent(name, taskName, process.cwd(), { worker: options.worker });
     console.log(JSON.stringify({ ok: true, run: result.file }, null, 2));
   });
 

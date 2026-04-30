@@ -147,4 +147,26 @@ describe("tool runtime isolation", () => {
       expect(result.checks.map((check) => check.name)).toContain("node_modules");
     });
   });
+
+  it("does not require node_modules when a node tool has no dependencies", async () => {
+    await withTempWorkspace(async (root) => {
+      const toolRoot = path.join(root, "tool");
+      await mkdir(toolRoot, { recursive: true });
+      await writeFile(path.join(toolRoot, "package.json"), JSON.stringify({ name: "no-deps-tool" }), "utf8");
+      const registration = fakeToolRegistration({
+        name: "no-deps-tool",
+        runtime: {
+          type: "node",
+          cwd: toolRoot,
+          package_manager: "npm",
+          isolated: true
+        }
+      });
+
+      const result = await doctorTool(registration, root);
+
+      expect(result.ok).toBe(true);
+      expect(result.checks.find((check) => check.name === "node_modules")?.message).toContain("not required");
+    });
+  });
 });

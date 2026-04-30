@@ -81,6 +81,15 @@ The model-facing plan is intentionally tiny:
 
 This is the key shift from runtime skeleton to agent behavior: Cyborg can now ask a model what to do, validate that decision, execute a registered deterministic capability, and feed structured errors back for repair.
 
+Implemented v0.2 additions:
+
+- `cyborg model --smoke` verifies the selected OpenAI-compatible endpoint can return JSON.
+- Repair attempts are recorded with model name, plan, exit code, and error type.
+- Automatic fallback can route later repair attempts to the large model when `max_retries_exceeded` is configured.
+- `cyborg tool create <name>` creates a local Node A2C2A tool scaffold under `tools/<name>`.
+- `research-fetcher` provides the first research/news fetch-normalize tool contract.
+- `cyborg agent run <profile> <task> --worker planner` lets a subagent run through the planner loop instead of only deterministic task execution.
+
 ## Context Budget Strategy
 
 Do not put everything into the prompt.
@@ -299,7 +308,10 @@ cyborg doctor
 cyborg ask "run the research progress report"
 cyborg context
 cyborg model --reason fallback
+cyborg model --smoke
 cyborg tool list
+cyborg tool create research-fetcher
+cyborg tool add examples\research-fetcher-tool.json
 cyborg tool info page-generator-cli
 cyborg tool help page-generator-cli render
 cyborg tool manifest page-generator-cli
@@ -315,6 +327,7 @@ cyborg policy show
 cyborg approval list
 cyborg agent list
 cyborg agent run researcher research-progress
+cyborg agent run researcher research-progress --worker planner
 cyborg tui
 ```
 

@@ -49,11 +49,21 @@ export interface AgentRunOptions {
   modelClient?: ModelClient;
 }
 
+export interface AgentAttempt {
+  attempt: number;
+  model: string;
+  plan: AgentPlan;
+  ok: boolean;
+  code?: number | null;
+  error_type?: string;
+}
+
 export interface AgentRunResult {
   session: string;
   file: string;
   output: string;
   plan: AgentPlan;
+  attempts: AgentAttempt[];
 }
 
 export async function runAgentGoal(goal: string, root = process.cwd(), options: AgentRunOptions = {}): Promise<AgentRunResult> {
@@ -70,6 +80,7 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
 
   let output = "";
   let finalPlan = plan;
+  const attempts: AgentAttempt[] = [];
 
   if (plan.kind === "answer") {
     output = plan.message;
@@ -79,6 +90,14 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
     addEvent(session, "agent.task_result", `Ran task ${plan.task}`, result);
   } else {
     const result = await callToolWithRequest(plan.tool, plan.request, root, session.id);
+    attempts.push({
+      attempt: 0,
+      model: smallModel.model,
+      plan,
+      ok: result.ok,
+      code: result.code,
+      error_type: extractErrorType(result.body)
+    });
     addEvent(session, result.ok ? "agent.tool_ok" : "agent.tool_error", `Called tool ${plan.tool}`, result);
     if (result.ok) {
       output = result.body;
@@ -86,16 +105,35 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
       let repaired = false;
       let lastResult = result;
       for (let attempt = 1; attempt <= maxRepairAttempts; attempt += 1) {
-        const repairModel = shouldFallback(config, lastResult.body) ? chooseModel(config, "repair_failed") : smallModel;
+        const fallback = shouldFallback(config, lastResult.body, attempt);
+        const repairModel = fallback ? chooseModel(config, "repair_failed") : smallModel;
         const repairPlan = await requestRepair(modelClient, repairModel, goal, context, finalPlan, lastResult.body);
         finalPlan = repairPlan;
-        addEvent(session, "agent.repair_plan", `Repair attempt ${attempt}`, repairPlan);
+        addEvent(session, fallback ? "agent.fallback" : "agent.repair_plan", `Repair attempt ${attempt}`, {
+          model: repairModel.model,
+          plan: repairPlan,
+          previous_error_type: extractErrorType(lastResult.body)
+        });
         if (repairPlan.kind !== "call_tool") {
           output = repairPlan.kind === "answer" ? repairPlan.message : JSON.stringify(repairPlan, null, 2);
+          attempts.push({
+            attempt,
+            model: repairModel.model,
+            plan: repairPlan,
+            ok: true
+          });
           repaired = true;
           break;
         }
         lastResult = await callToolWithRequest(repairPlan.tool, repairPlan.request, root, session.id);
+        attempts.push({
+          attempt,
+          model: repairModel.model,
+          plan: repairPlan,
+          ok: lastResult.ok,
+          code: lastResult.code,
+          error_type: extractErrorType(lastResult.body)
+        });
         addEvent(session, lastResult.ok ? "agent.tool_ok" : "agent.tool_error", `Repair call ${attempt}`, lastResult);
         if (lastResult.ok) {
           output = lastResult.body;
@@ -111,7 +149,7 @@ export async function runAgentGoal(goal: string, root = process.cwd(), options: 
 
   addEvent(session, "agent.final", "Agent run finished.", { output });
   const saved = await saveSession(session);
-  return { session: session.id, file: saved.file, output, plan: finalPlan };
+  return { session: session.id, file: saved.file, output, plan: finalPlan, attempts };
 }
 
 async function buildPlanningContext(root: string) {
@@ -194,11 +232,15 @@ function repairSystemPrompt() {
   ].join("\n");
 }
 
-function shouldFallback(config: Awaited<ReturnType<typeof loadConfig>>, body: string) {
+function shouldFallback(config: Awaited<ReturnType<typeof loadConfig>>, body: string, attempt: number) {
   if (!config.models.large || config.models.routing.mode !== "auto") {
     return false;
   }
-  return config.models.routing.fallback_on.some((reason) => body.includes(reason));
+  const errorType = extractErrorType(body);
+  if (attempt > 1 && config.models.routing.fallback_on.includes("max_retries_exceeded")) {
+    return true;
+  }
+  return config.models.routing.fallback_on.some((reason) => body.includes(reason) || errorType === reason);
 }
 
 function responseOk(body: string) {
@@ -212,4 +254,16 @@ function safeJson(value: string): JsonValue {
   } catch {
     return value;
   }
+}
+
+function extractErrorType(body: string) {
+  const parsed = safeJson(body);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return undefined;
+  }
+  const error = parsed.error;
+  if (typeof error !== "object" || error === null || Array.isArray(error)) {
+    return undefined;
+  }
+  return typeof error.type === "string" ? error.type : undefined;
 }

@@ -114,14 +114,27 @@ export async function doctorTool(registration: ToolRegistration, root = process.
     if (cwd) {
       const packageJson = path.join(cwd, "package.json");
       checks.push(await pathCheck("package.json", packageJson, "package.json exists"));
-      checks.push(await pathCheck("node_modules", path.join(cwd, "node_modules"), "node_modules exists"));
       try {
-        const parsed = JSON.parse(await readFile(packageJson, "utf8")) as { name?: string };
+        const parsed = JSON.parse(await readFile(packageJson, "utf8")) as {
+          name?: string;
+          dependencies?: Record<string, string>;
+          devDependencies?: Record<string, string>;
+        };
         checks.push({
           name: "package.name",
           ok: Boolean(parsed.name),
           message: parsed.name ? `package name: ${parsed.name}` : "package.json has no name"
         });
+        const dependencyCount = Object.keys(parsed.dependencies ?? {}).length + Object.keys(parsed.devDependencies ?? {}).length;
+        if (dependencyCount > 0) {
+          checks.push(await pathCheck("node_modules", path.join(cwd, "node_modules"), "node_modules exists"));
+        } else {
+          checks.push({
+            name: "node_modules",
+            ok: true,
+            message: "node_modules not required; package has no dependencies"
+          });
+        }
       } catch {
         checks.push({
           name: "package.name",

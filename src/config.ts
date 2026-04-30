@@ -9,6 +9,8 @@ export const ModelProfileSchema = z.object({
   role: z.enum(["small", "large"]).default("small")
 });
 
+export type ModelProfile = z.output<typeof ModelProfileSchema>;
+
 export const ModelRoutingSchema = z.object({
   mode: z.enum(["small_only", "large_only", "auto", "manual"]).default("auto"),
   fallback_on: z.array(z.enum([

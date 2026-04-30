@@ -14,6 +14,7 @@ import { runInvocation } from "../runner.js";
 import { addEvent, createSession, listRuns, saveSession, type CyborgSession } from "../session.js";
 import { listTasks } from "../task.js";
 import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
+import { runAgentGoal } from "./planner.js";
 import { runA2C2ARequest, runTask } from "./task-runner.js";
 import { buildToolIndex } from "./tool-context.js";
 
@@ -227,12 +228,18 @@ async function runNaturalIntent(line: string, state: ShellState): Promise<ShellR
   }
 
   return {
-    output: [
-      "I am running in deterministic shell mode right now.",
-      "Use /tools, /tasks, /hooks, /agents, /run <task>, /agent-run <agent> <task>, /call <tool> <request.json>, or /help.",
-      "The small-model planner will plug into this same loop next."
-    ].join("\n")
+    output: await runAgentIntent(line, state.root)
   };
+}
+
+async function runAgentIntent(line: string, root: string) {
+  const result = await runAgentGoal(line, root);
+  return [
+    result.output,
+    "",
+    `session: ${result.session}`,
+    `run: ${result.file}`
+  ].filter(Boolean).join("\n");
 }
 
 async function formatTools(root: string) {
@@ -483,6 +490,8 @@ function helpText() {
     "  list agents",
     "  list policies",
     "  list approvals",
-    "  run task research-progress"
+    "  run task research-progress",
+    "",
+    "Any other natural language line is sent to the Cyborg agent planner."
   ].join("\n");
 }

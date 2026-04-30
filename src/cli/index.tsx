@@ -11,6 +11,7 @@ import { runInvocation } from "../runner.js";
 import { cyborgEnv } from "../runtime.js";
 import { addTask, listTasks } from "../task.js";
 import { runTask } from "../agent/task-runner.js";
+import { runAgentGoal } from "../agent/planner.js";
 import { buildToolIndex } from "../agent/tool-context.js";
 import { listRuns } from "../session.js";
 import { startAgentShell } from "../agent/shell.js";
@@ -74,6 +75,22 @@ program.command("doctor")
     const result = await doctorCyborg(process.cwd());
     console.log(JSON.stringify({ ok: result.ok, doctor: result }, null, 2));
     process.exitCode = result.ok ? 0 : 1;
+  });
+
+program.command("ask")
+  .argument("<goal...>", "Natural language goal for the Cyborg agent.")
+  .option("--max-repair <count>", "Maximum A2C2A repair attempts", "1")
+  .description("Ask the real Cyborg agent loop to plan, call tools or tasks, and repair structured errors.")
+  .addHelpText("after", `
+
+Examples:
+  $ cyborg ask "run the research progress report"
+  $ cyborg ask "use page-generator-cli to render a project page" --max-repair 2`)
+  .action(async (goalParts: string[], options: { maxRepair: string }) => {
+    const result = await runAgentGoal(goalParts.join(" "), process.cwd(), {
+      maxRepairAttempts: Number.parseInt(options.maxRepair, 10)
+    });
+    console.log(JSON.stringify({ ok: true, agent: result }, null, 2));
   });
 
 program.command("context")

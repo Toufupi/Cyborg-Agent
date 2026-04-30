@@ -21,6 +21,7 @@ describe("cli", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("Open a persistent Cyborg-Agent shell");
     expect(result.stdout).toContain("chat");
+    expect(result.stdout).toContain("ask");
     expect(result.stdout).toContain("doctor");
     expect(result.stdout).toContain("tool");
     expect(result.stdout).toContain("task");

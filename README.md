@@ -109,6 +109,7 @@ npm run cyborg -- chat
 npm run cyborg -- config
 npm run cyborg -- env
 npm run cyborg -- doctor
+npm run cyborg -- ask "run the research progress report"
 npm run cyborg -- context
 npm run cyborg -- model --reason fallback
 npm run cyborg -- tool list
@@ -160,6 +161,51 @@ First shell commands:
 ```
 
 The shell stores its own `chat-*` session history under `.cyborg/runs`, so later planner work can inspect what happened instead of relying on terminal scrollback.
+
+## Agent Loop
+
+Cyborg-Agent now has a first real agent loop:
+
+```text
+natural goal
+  -> compact tool/task context
+  -> small-model JSON plan
+  -> run registered task or call A2C2A tool
+  -> if A2C2A returns a structured error, ask the model for a repaired JSON call
+  -> save the full session under .cyborg/runs
+```
+
+Use it directly:
+
+```powershell
+npm run cyborg -- ask "run the research progress report"
+```
+
+Or type a normal sentence in the persistent shell. Slash commands stay deterministic; non-command natural language is sent to the planner.
+
+The planner must return one small JSON object:
+
+```json
+{ "kind": "run_task", "task": "research-progress", "confidence": 0.9, "reason": "registered task" }
+```
+
+or:
+
+```json
+{
+  "kind": "call_tool",
+  "tool": "page-generator-cli",
+  "request": {
+    "a2c2a": "0.1",
+    "action": "page.render",
+    "input": {}
+  },
+  "confidence": 0.8,
+  "reason": "page tool can render this artifact"
+}
+```
+
+This keeps the agent small-model-friendly: the model plans in a constrained JSON protocol, and Cyborg executes only known plan types.
 
 ## Tool Runtime Isolation
 

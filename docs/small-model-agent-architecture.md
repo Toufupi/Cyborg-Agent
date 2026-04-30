@@ -48,6 +48,39 @@ model:
 
 The recurring task should mostly run from code and config. The model should only decide, summarize, repair, or escalate.
 
+## Agent Loop Status
+
+Implemented v0.1 loop:
+
+```text
+goal
+  -> compact context of tools and tasks
+  -> OpenAI-compatible chat completion with JSON response_format
+  -> validated plan JSON
+  -> run_task | call_tool | answer
+  -> A2C2A tool execution
+  -> structured repair attempt on A2C2A errors
+  -> run history
+```
+
+The model-facing plan is intentionally tiny:
+
+```json
+{
+  "kind": "call_tool",
+  "tool": "page-generator-cli",
+  "request": {
+    "a2c2a": "0.1",
+    "action": "page.render",
+    "input": {}
+  },
+  "confidence": 0.8,
+  "reason": "registered page generation tool"
+}
+```
+
+This is the key shift from runtime skeleton to agent behavior: Cyborg can now ask a model what to do, validate that decision, execute a registered deterministic capability, and feed structured errors back for repair.
+
 ## Context Budget Strategy
 
 Do not put everything into the prompt.
@@ -263,6 +296,7 @@ cyborg init
 cyborg config
 cyborg env
 cyborg doctor
+cyborg ask "run the research progress report"
 cyborg context
 cyborg model --reason fallback
 cyborg tool list
@@ -284,6 +318,6 @@ cyborg agent run researcher research-progress
 cyborg tui
 ```
 
-The current `research-progress` demo uses Page-Generator-CLI to prove the task/config/tool/run-log loop. Hooks, agent profiles, A2A transcripts, subagent lifecycle status, policy checks, approvals, and runtime isolation are implemented at v0.1 skeleton level.
+The current `research-progress` demo uses Page-Generator-CLI to prove the task/config/tool/run-log loop. Hooks, agent profiles, A2A transcripts, subagent lifecycle status, policy checks, approvals, runtime isolation, and a model-driven planner/repair loop are implemented at v0.1 level.
 
 The next tool should be `research-fetcher`, which will turn the static demo payload into real source collection.

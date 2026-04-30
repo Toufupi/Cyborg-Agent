@@ -132,6 +132,7 @@ npm run cyborg -- policy list
 npm run cyborg -- policy show
 npm run cyborg -- approval list
 npm run cyborg -- audit list
+npm run cyborg -- audit summary
 npm run cyborg -- memory list
 npm run cyborg -- memory search "render a report"
 npm run cyborg -- memory extract .cyborg\runs\agent-...\run.json
@@ -601,6 +602,7 @@ Current enforcement:
 - `approvals.mode: "ask"` creates a pending approval instead of executing denied commands;
 - `allow-once` approvals are bound to an invocation fingerprint and consumed after one use.
 - subagent start/end/error/cancel, scheduler daemon, scheduler task, and policy invocation decisions are written to `.cyborg/audit/events.jsonl`.
+- `audit summary` aggregates audit events by type and decision so policy denies, failed scheduled jobs, and lifecycle events are visible without reading raw JSONL.
 
 Security modes:
 

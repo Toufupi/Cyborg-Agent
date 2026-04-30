@@ -39,3 +39,28 @@ export async function readAuditEvents(root = process.cwd()) {
     throw error;
   }
 }
+
+export async function summarizeAudit(root = process.cwd()) {
+  const events = await readAuditEvents(root);
+  const summary = {
+    events: events.length,
+    by_type: {} as Record<string, number>,
+    by_decision: {} as Record<string, number>,
+    denied: 0,
+    approvals: 0,
+    recent: events.slice(-10)
+  };
+  for (const event of events) {
+    summary.by_type[event.type] = (summary.by_type[event.type] ?? 0) + 1;
+    if (event.decision) {
+      summary.by_decision[event.decision] = (summary.by_decision[event.decision] ?? 0) + 1;
+    }
+    if (event.decision === "deny" || event.decision === "failed") {
+      summary.denied += 1;
+    }
+    if (event.type.includes("approval") || event.decision === "stop-requested") {
+      summary.approvals += 1;
+    }
+  }
+  return summary;
+}

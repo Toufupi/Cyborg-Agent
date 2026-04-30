@@ -24,7 +24,7 @@ import { doctorCyborg } from "../doctor.js";
 import { describeToolEnv, doctorTool, installTool, prepareToolEnv, prepareToolInvocation } from "../tool-runtime.js";
 import { smokeModel } from "../model-client.js";
 import { installMarketplaceTool, listMarketplaceTools } from "../marketplace.js";
-import { readAuditEvents } from "../audit.js";
+import { readAuditEvents, summarizeAudit } from "../audit.js";
 import { requestSchedulerStop, runDueTasks, schedulerStatus, watchDueTasks } from "../scheduler.js";
 import { addMemory, extractMemoriesFromRun, listMemories, searchMemories, type MemoryType } from "../memory.js";
 import { summarizeUsage } from "../usage.js";
@@ -616,6 +616,12 @@ audit.command("list")
     events.forEach((event) => {
       console.log(`${event.time}\t${event.type}\t${event.decision ?? ""}\t${event.subject ?? ""}`);
     });
+  });
+
+audit.command("summary")
+  .description("Summarize audit events by type and decision.")
+  .action(async () => {
+    console.log(JSON.stringify({ ok: true, audit: await summarizeAudit(process.cwd()) }, null, 2));
   });
 
 program.command("usage")

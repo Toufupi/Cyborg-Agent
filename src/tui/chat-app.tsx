@@ -233,16 +233,17 @@ function AnchoredInputFrame({ children, input, busy }: { children: React.ReactNo
 function ChatHeader({ active, status }: { active: boolean; status: ChatStatus }) {
   const ctx = `${Math.round(status.contextPressure.used_ratio * 100)}%`;
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1} paddingY={1} marginBottom={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={2} paddingY={1} marginBottom={1}>
       <Box>
         <BinaryRobotLogo active={active} />
-        <Box flexDirection="column" marginLeft={3} minWidth={34}>
+        <Box flexDirection="column" marginLeft={4} minWidth={38}>
           <Text>
             <Text bold color="green">Cyborg-Agent</Text>
             <Text color="gray"> / terminal agent shell</Text>
           </Text>
           <Text color="gray">Welcome back.</Text>
-          <MatrixRain active={active} width={30} rows={4} />
+          <Text color="gray">A2C2A-first planner online</Text>
+          <MatrixRain active={active} width={34} rows={6} />
         </Box>
         <Box flexDirection="column" marginLeft={3} minWidth={38}>
           <Text>
@@ -295,21 +296,24 @@ function BinaryRobotLogo({ active }: { active: boolean }) {
   const eye = active && tick % 4 === 0 ? "1" : "0";
   const antenna = active && tick % 2 === 0 ? "1" : "0";
   const lines = [
-    `      ${antenna}      `,
-    "      |      ",
-    "   0111110   ",
-    "  111111111  ",
-    ` 11  ${eye} ${eye}  11 `,
-    " 111 010 111 ",
-    " 11111111111 ",
-    "   11   11   ",
-    "   10   01   "
+    `        ${antenna}        `,
+    "        |        ",
+    "     0111110     ",
+    "   01111111110   ",
+    "  1111111111111  ",
+    ` 11   ${eye}   ${eye}   11 `,
+    " 11    010    11 ",
+    "  1111111111111  ",
+    "    111111111    ",
+    "     11   11     ",
+    "    010   010    ",
+    "    010   010    "
   ];
 
   return (
-    <Box flexDirection="column" minWidth={15}>
+    <Box flexDirection="column" minWidth={19}>
       {lines.map((line, index) => (
-        <Text key={index} color={index <= 2 ? "#00ff41" : index <= 6 ? "#00a83b" : "#005f26"} bold={index >= 3 && index <= 6}>
+        <Text key={index} color={index <= 2 ? "#00ff41" : index <= 8 ? "#00a83b" : "#005f26"} bold={index >= 3 && index <= 8}>
           {line}
         </Text>
       ))}

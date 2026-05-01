@@ -102,14 +102,22 @@ This creates:
 
 Unified management:
 
-Install once for direct shell usage:
+Development install from this repository:
 
 ```powershell
 cd C:\Users\byte2\HelloWorld\Cyborg-Agent
 npm run install:global
 ```
 
-After that, any new shell can call Cyborg directly:
+This runs `npm ci`, builds the CLI, links it globally with `npm link`, and smoke-tests `cyborg --help`.
+
+Future npm install after publishing:
+
+```powershell
+npm install -g cyborg-agent
+```
+
+Both paths expose the same command, so any new shell can call Cyborg directly:
 
 ```powershell
 cyborg --help

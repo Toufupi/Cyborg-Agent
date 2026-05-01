@@ -3,12 +3,28 @@
   "version": "0.1.0",
   "description": "Reference tool registry and orchestration experiments for A2C2A-based Cyborg Agents.",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "cyborg": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "examples",
+    "scripts",
+    "tools",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/cli/index.tsx",
+    "prepack": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

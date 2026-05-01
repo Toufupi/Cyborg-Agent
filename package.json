@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "cyborg": "tsx src/cli/index.tsx"
+    "cyborg": "tsx src/cli/index.tsx",
+    "install:global": "node scripts/install-global.mjs"
   },
   "keywords": [
     "a2c2a",

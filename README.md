@@ -102,6 +102,23 @@ This creates:
 
 Unified management:
 
+Install once for direct shell usage:
+
+```powershell
+cd C:\Users\byte2\HelloWorld\Cyborg-Agent
+npm run install:global
+```
+
+After that, any new shell can call Cyborg directly:
+
+```powershell
+cyborg --help
+cyborg chat
+cyborg doctor
+```
+
+For source-tree development, the npm script form still works:
+
 ```powershell
 npm run cyborg -- init
 npm run cyborg

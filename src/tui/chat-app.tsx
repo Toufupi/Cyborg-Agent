@@ -224,43 +224,30 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
 
 function AnchoredInputFrame({ children, input, cursorOffset, busy }: { children: React.ReactNode; input: string; cursorOffset: number; busy: boolean }) {
   const { setCursorPosition } = useCursor();
-  const lineRef = useRef<DOMElement | null>(null);
+  const frameRef = useRef<DOMElement | null>(null);
 
   useEffect(() => {
-    const line = lineRef.current;
-    if (!line) {
+    const frame = frameRef.current;
+    if (!frame) {
       setCursorPosition(undefined);
       return;
     }
-    const position = absolutePosition(line);
+    const top = frame.yogaNode?.getComputedTop() ?? 0;
+    const left = frame.yogaNode?.getComputedLeft() ?? 0;
     const prompt = busy ? "cyborg working " : "cyborg ready ";
     const inputBeforeCursor = input.slice(0, cursorOffset);
     setCursorPosition({
-      x: Math.max(0, position.left + stringWidth(prompt + inputBeforeCursor)),
-      y: Math.max(0, position.top)
+      x: Math.max(0, left + 2 + stringWidth(prompt + inputBeforeCursor)),
+      y: Math.max(0, top + 1)
     });
     return () => setCursorPosition(undefined);
   }, [input, cursorOffset, busy, setCursorPosition]);
 
   return (
-    <Box borderStyle="single" borderColor={busy ? "yellow" : "gray"} paddingX={1} paddingY={0} marginTop={1}>
-      <Box ref={lineRef}>
-        {children}
-      </Box>
+    <Box ref={frameRef} borderStyle="single" borderColor={busy ? "yellow" : "gray"} paddingX={1} paddingY={0} marginTop={1}>
+      {children}
     </Box>
   );
-}
-
-function absolutePosition(node: DOMElement) {
-  let left = 0;
-  let top = 0;
-  let current: DOMElement | undefined = node;
-  while (current) {
-    left += current.yogaNode?.getComputedLeft() ?? 0;
-    top += current.yogaNode?.getComputedTop() ?? 0;
-    current = current.parentNode;
-  }
-  return { left, top };
 }
 
 function InputLine({

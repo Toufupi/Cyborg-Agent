@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, measureElement, useApp, useCursor, useInput, type DOMElement } from "ink";
-import TextInput from "ink-text-input";
 import logSymbols from "log-symbols";
 import stringWidth from "string-width";
 import { listApprovals, resolveApproval, type ApprovalRequest } from "../approvals.js";
@@ -44,6 +43,7 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
   const { exit } = useApp();
   const [state, setState] = useState<ShellState>();
   const [input, setInput] = useState("");
+  const [cursorOffset, setCursorOffset] = useState(0);
   const [rows, setRows] = useState<ChatRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
@@ -112,39 +112,6 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
     if (key.ctrl && _input === "c") {
       exit();
     }
-    if (state && !busy && key.upArrow) {
-      const nextIndex = historyIndex === undefined ? history.length - 1 : Math.max(0, historyIndex - 1);
-      if (history[nextIndex]) {
-        setInput(history[nextIndex]);
-        setHistoryIndex(nextIndex);
-      }
-      return;
-    }
-    if (state && !busy && key.downArrow) {
-      if (historyIndex === undefined) {
-        return;
-      }
-      const nextIndex = historyIndex + 1;
-      if (nextIndex >= history.length) {
-        setInput("");
-        setHistoryIndex(undefined);
-        return;
-      }
-      setInput(history[nextIndex] ?? "");
-      setHistoryIndex(nextIndex);
-      return;
-    }
-    if (state && !busy && key.tab) {
-      void completeInput(input, state).then((completed) => {
-        if (!completed) {
-          setCompletionHint("no completion");
-          return;
-        }
-        setInput(completed);
-        setCompletionHint(completed === input ? "already complete" : `completed ${completed}`);
-      });
-      return;
-    }
     if (!state || approvals.length === 0 || busy || input.length > 0) {
       return;
     }
@@ -164,6 +131,7 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
       return;
     }
     setInput("");
+    setCursorOffset(0);
     setCompletionHint("");
     setHistory((current) => [...current.filter((item) => item !== line), line].slice(-50));
     setHistoryIndex(undefined);
@@ -193,16 +161,70 @@ export function ChatApp({ root = process.cwd(), resume, continueLatest, modelCli
       <ApprovalPanel approvals={approvals} />
       <ChatStatusLine status={{ ...status, busy }} />
       {completionHint ? <Text color="gray">{completionHint}</Text> : null}
-      <AnchoredInputFrame input={input} busy={busy}>
+      <AnchoredInputFrame input={input} cursorOffset={cursorOffset} busy={busy}>
         <Text color="green">cyborg</Text>
         <Text color="gray"> {busy ? "working" : "ready"} </Text>
-        <TextInput value={input} onChange={setInput} onSubmit={submit} placeholder={busy ? "waiting for agent..." : "ask, /help, /tools, /exit"} />
+        <ChatTextInput
+          value={input}
+          cursorOffset={cursorOffset}
+          disabled={busy}
+          placeholder={busy ? "waiting for agent..." : "ask, /help, /tools, /exit"}
+          onChange={(value, nextOffset) => {
+            setInput(value);
+            setCursorOffset(nextOffset);
+            setCompletionHint("");
+            setHistoryIndex(undefined);
+          }}
+          onSubmit={submit}
+          onHistoryUp={() => {
+            if (!state || busy) {
+              return;
+            }
+            const nextIndex = historyIndex === undefined ? history.length - 1 : Math.max(0, historyIndex - 1);
+            if (history[nextIndex]) {
+              const value = history[nextIndex] ?? "";
+              setInput(value);
+              setCursorOffset(value.length);
+              setHistoryIndex(nextIndex);
+            }
+          }}
+          onHistoryDown={() => {
+            if (!state || busy || historyIndex === undefined) {
+              return;
+            }
+            const nextIndex = historyIndex + 1;
+            if (nextIndex >= history.length) {
+              setInput("");
+              setCursorOffset(0);
+              setHistoryIndex(undefined);
+              return;
+            }
+            const value = history[nextIndex] ?? "";
+            setInput(value);
+            setCursorOffset(value.length);
+            setHistoryIndex(nextIndex);
+          }}
+          onComplete={() => {
+            if (!state || busy) {
+              return;
+            }
+            void completeInput(input, state).then((completed) => {
+              if (!completed) {
+                setCompletionHint("no completion");
+                return;
+              }
+              setInput(completed);
+              setCursorOffset(completed.length);
+              setCompletionHint(completed === input ? "already complete" : `completed ${completed}`);
+            });
+          }}
+        />
       </AnchoredInputFrame>
     </Box>
   );
 }
 
-function AnchoredInputFrame({ children, input, busy }: { children: React.ReactNode; input: string; busy: boolean }) {
+function AnchoredInputFrame({ children, input, cursorOffset, busy }: { children: React.ReactNode; input: string; cursorOffset: number; busy: boolean }) {
   const { setCursorPosition } = useCursor();
   const boxRef = useRef<DOMElement | null>(null);
 
@@ -216,18 +238,125 @@ function AnchoredInputFrame({ children, input, busy }: { children: React.ReactNo
     const top = box.yogaNode?.getComputedTop() ?? 0;
     const left = box.yogaNode?.getComputedLeft() ?? 0;
     const prompt = busy ? "cyborg working " : "cyborg ready ";
+    const inputBeforeCursor = input.slice(0, cursorOffset);
     setCursorPosition({
-      x: Math.max(0, left + stringWidth(prompt + input) + 2),
+      x: Math.max(0, left + stringWidth(prompt + inputBeforeCursor) + 2),
       y: Math.max(0, top + height - 2)
     });
     return () => setCursorPosition(undefined);
-  }, [input, busy, setCursorPosition]);
+  }, [input, cursorOffset, busy, setCursorPosition]);
 
   return (
     <Box ref={boxRef} borderStyle="single" borderColor={busy ? "yellow" : "gray"} paddingX={1} marginTop={1}>
       {children}
     </Box>
   );
+}
+
+function ChatTextInput({
+  value,
+  cursorOffset,
+  disabled,
+  placeholder,
+  onChange,
+  onSubmit,
+  onHistoryUp,
+  onHistoryDown,
+  onComplete
+}: {
+  value: string;
+  cursorOffset: number;
+  disabled: boolean;
+  placeholder: string;
+  onChange: (value: string, cursorOffset: number) => void;
+  onSubmit: (value: string) => void;
+  onHistoryUp: () => void;
+  onHistoryDown: () => void;
+  onComplete: () => void;
+}) {
+  useInput((input, key) => {
+    if (disabled) {
+      return;
+    }
+    if (key.return) {
+      onSubmit(value);
+      return;
+    }
+    if (key.upArrow) {
+      onHistoryUp();
+      return;
+    }
+    if (key.downArrow) {
+      onHistoryDown();
+      return;
+    }
+    if (key.tab) {
+      onComplete();
+      return;
+    }
+    if (key.leftArrow) {
+      onChange(value, previousOffset(value, cursorOffset));
+      return;
+    }
+    if (key.rightArrow) {
+      onChange(value, nextOffset(value, cursorOffset));
+      return;
+    }
+    if (key.backspace) {
+      const previous = previousOffset(value, cursorOffset);
+      if (previous !== cursorOffset) {
+        onChange(value.slice(0, previous) + value.slice(cursorOffset), previous);
+      }
+      return;
+    }
+    if (key.delete) {
+      const next = nextOffset(value, cursorOffset);
+      if (next !== cursorOffset) {
+        onChange(value.slice(0, cursorOffset) + value.slice(next), cursorOffset);
+      }
+      return;
+    }
+    if (key.ctrl || key.meta || !input) {
+      return;
+    }
+    onChange(value.slice(0, cursorOffset) + input + value.slice(cursorOffset), cursorOffset + input.length);
+  });
+
+  if (!value) {
+    return (
+      <Text>
+        <Text backgroundColor="#00a83b"> </Text>
+        <Text color="gray"> {placeholder}</Text>
+      </Text>
+    );
+  }
+
+  const before = value.slice(0, cursorOffset);
+  const cursorChar = value.slice(cursorOffset, nextOffset(value, cursorOffset)) || " ";
+  const after = value.slice(cursorOffset + cursorChar.length);
+  return (
+    <Text>
+      {before}
+      <Text inverse>{cursorChar}</Text>
+      {after}
+    </Text>
+  );
+}
+
+function previousOffset(value: string, cursorOffset: number) {
+  if (cursorOffset <= 0) {
+    return 0;
+  }
+  const before = Array.from(value.slice(0, cursorOffset));
+  before.pop();
+  return before.join("").length;
+}
+
+function nextOffset(value: string, cursorOffset: number) {
+  if (cursorOffset >= value.length) {
+    return value.length;
+  }
+  return cursorOffset + (Array.from(value.slice(cursorOffset))[0]?.length ?? 0);
 }
 
 function ChatHeader({ active, status }: { active: boolean; status: ChatStatus }) {

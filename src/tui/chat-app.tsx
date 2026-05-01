@@ -232,14 +232,12 @@ function AnchoredInputFrame({ children, input, cursorOffset, busy }: { children:
       setCursorPosition(undefined);
       return;
     }
-    const { height } = measureElement(line);
-    const top = line.yogaNode?.getComputedTop() ?? 0;
-    const left = line.yogaNode?.getComputedLeft() ?? 0;
+    const position = absolutePosition(line);
     const prompt = busy ? "cyborg working " : "cyborg ready ";
     const inputBeforeCursor = input.slice(0, cursorOffset);
     setCursorPosition({
-      x: Math.max(0, left + stringWidth(prompt + inputBeforeCursor)),
-      y: Math.max(0, top + height - 2)
+      x: Math.max(0, position.left + stringWidth(prompt + inputBeforeCursor)),
+      y: Math.max(0, position.top)
     });
     return () => setCursorPosition(undefined);
   }, [input, cursorOffset, busy, setCursorPosition]);
@@ -251,6 +249,18 @@ function AnchoredInputFrame({ children, input, cursorOffset, busy }: { children:
       </Box>
     </Box>
   );
+}
+
+function absolutePosition(node: DOMElement) {
+  let left = 0;
+  let top = 0;
+  let current: DOMElement | undefined = node;
+  while (current) {
+    left += current.yogaNode?.getComputedLeft() ?? 0;
+    top += current.yogaNode?.getComputedTop() ?? 0;
+    current = current.parentNode;
+  }
+  return { left, top };
 }
 
 function InputLine({

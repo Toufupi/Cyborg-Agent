@@ -237,7 +237,7 @@ function AnchoredInputFrame({ children, input, cursorOffset, busy }: { children:
     const prompt = busy ? "cyborg working " : "cyborg ready ";
     const inputBeforeCursor = input.slice(0, cursorOffset);
     setCursorPosition({
-      x: Math.max(0, left + 2 + stringWidth(prompt + inputBeforeCursor)),
+      x: Math.max(0, left + 2 + stringWidth(prompt + inputBeforeCursor) + (input.length === 0 ? 1 : 0)),
       y: Math.max(0, top + (input.length === 0 ? 1 : 2))
     });
     return () => setCursorPosition(undefined);

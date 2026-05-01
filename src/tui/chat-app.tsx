@@ -322,6 +322,8 @@ function InputLine({
   if (!value) {
     return (
       <Text>
+        <Text color="green">cyborg</Text>
+        <Text color="gray"> {disabled ? "working" : "ready"} </Text>
         <Text backgroundColor="#00a83b"> </Text>
         <Text color="gray"> {placeholder}</Text>
       </Text>
@@ -333,6 +335,8 @@ function InputLine({
   const after = value.slice(cursorOffset + cursorChar.length);
   return (
     <Text>
+      <Text color="green">cyborg</Text>
+      <Text color="gray"> {disabled ? "working" : "ready"} </Text>
       {before}
       <Text inverse>{cursorChar}</Text>
       {after}

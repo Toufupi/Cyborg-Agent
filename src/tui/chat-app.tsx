@@ -238,7 +238,7 @@ function AnchoredInputFrame({ children, input, cursorOffset, busy }: { children:
     const inputBeforeCursor = input.slice(0, cursorOffset);
     setCursorPosition({
       x: Math.max(0, left + 2 + stringWidth(prompt + inputBeforeCursor)),
-      y: Math.max(0, top + 1)
+      y: Math.max(0, top + 2)
     });
     return () => setCursorPosition(undefined);
   }, [input, cursorOffset, busy, setCursorPosition]);
